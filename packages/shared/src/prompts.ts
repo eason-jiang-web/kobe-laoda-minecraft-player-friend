@@ -78,6 +78,11 @@ export function formatStateForPrompt(s: GameState): string {
       : s.inventory.map((i) => `${itemNameZh(i.name)}x${i.count}`).join(", ");
 
   const looking = s.self.lookingAt ? ` looking@${itemNameZh(s.self.lookingAt)}` : "";
+  // 环境里已经有的设施：写出来它才不会傻乎乎再做一个
+  const stations =
+    s.nearStations && s.nearStations.length > 0
+      ? s.nearStations.map((st) => itemNameZh(st.name) + "@" + st.distance + "b").join(", ")
+      : "";
   const goal = s.currentGoal ? `${s.currentGoal.label} [${s.currentGoal.status}]` : "none";
 
   // #free / #stop are modes the brain must respect: promising "omw" while in
@@ -101,6 +106,7 @@ export function formatStateForPrompt(s: GameState): string {
     } state=${s.followState}${looking}`,
     `goal: ${goal}`,
     modes ? `modes: ${modes}` : "",
+    stations ? `附近有：${stations}（现成的直接用，别再做一个）` : "",
     p
       ? `player ${p.username}: ${p.online ? `${p.distance ?? "?"}b away` : "offline"}`
       : "player: not found",

@@ -117,6 +117,14 @@ export interface GameState {
     muted?: boolean;
     guide?: boolean;
   };
+  /**
+   * 附近摆着的"设施"（工作台 / 熔炉 / 箱子），16 格内。
+   *
+   * 为什么要它：进度判定原来**只看背包**，于是世界里明明摆着工作台，
+   * 它还会照清单再做一个（用户原话：「游戏环境中有工作台还要造」）。
+   * 玩家会先看一眼周围 —— 这一步就是把"看一眼"喂给它。
+   */
+  nearStations?: Array<{ name: string; distance: number; pos: Vec3Lit }>;
   /** The goal itto is currently pursuing (set by the brain via set_goal), if any. */
   currentGoal: { id: string; label: string; status: GoalStatus; progress?: string } | null;
   /**

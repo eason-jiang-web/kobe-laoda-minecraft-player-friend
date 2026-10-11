@@ -56,6 +56,15 @@ export interface GuideStage {
   actions: string;
 }
 
+/**
+ * 附近（16 格内）有没有这个设施。
+ * 用途：世界里已经摆着的东西，别再让模型去做一份 —— 用户原话
+ * 「游戏环境中有工作台还要造」，根子就是进度只认背包、不认环境。
+ */
+export function nearStation(s: GameState, name: string): boolean {
+  return (s.nearStations ?? []).some((st) => st.name === name);
+}
+
 export const STAGES: GuideStage[] = [
   {
     id: "wood",
@@ -67,8 +76,12 @@ export const STAGES: GuideStage[] = [
   {
     id: "bench",
     title: "工作台 + 木工具",
-    done: (s) => has(s, "crafting_table") || hasMatch(s, /^wooden_(pickaxe|axe|sword)$/),
-    hint: "4 个木板做工作台，然后木镐 + 木斧 + 木剑。",
+    done: (s) =>
+      has(s, "crafting_table") ||
+      // 世界里摆着的也算 —— 别再做第二个
+      nearStation(s, "crafting_table") ||
+      hasMatch(s, /^wooden_(pickaxe|axe|sword)$/),
+    hint: "4 个木板做工作台（**周围已经有工作台就直接拿去用，别再做**），然后木镐 + 木斧 + 木剑。",
     actions: "craft_item（planks / crafting_table / wooden_pickaxe…）",
   },
   {

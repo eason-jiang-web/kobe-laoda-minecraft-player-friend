@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { BotControl, BotGoal, GameState } from "@itto/shared";
-import { GoalRunner } from "./goal-runner.js";
+import { gatherSkillFor, GoalRunner, namesFor } from "./goal-runner.js";
 
 /** Flush the microtask queue so a started skill/async step settles. */
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -94,10 +94,62 @@ describe("collect — verified by the inventory, not by the skill returning", ()
 
   test("fails fast on something it has no way to gather", () => {
     const h = harness();
-    h.runner.setGoal({ kind: "collect", item: "dirt", count: 64 }, "get dirt");
+    // 下界之星不是挖出来的（打凋灵掉的）—— 这种才该老实认输
+    h.runner.setGoal({ kind: "collect", item: "nether_star", count: 1 }, "get a nether star");
     h.runner.tick();
     expect(h.completed.at(-1)?.status).toBe("failed");
-    expect(h.completed.at(-1)?.error).toContain("不知道用什么办法");
+    expect(h.completed.at(-1)?.error).toContain("不知道去哪弄");
+    expect(h.completed.at(-1)?.error).toContain("合成");
+  });
+});
+
+describe("物品来源常识 —— 「刨 8 个石头做石镐」不该死在这儿", () => {
+  test("圆石：去挖石头（以前直接是「不知道用什么办法」）", () => {
+    expect(gatherSkillFor("cobblestone")).toEqual({ name: "mine_vein", args: { ore: "stone" } });
+  });
+
+  test("石头：也是挖石头（挖出来叫圆石，下面有等价物兜着）", () => {
+    expect(gatherSkillFor("stone")).toEqual({ name: "mine_vein", args: { ore: "stone" } });
+  });
+
+  test("泥土/沙子/砂砾/黑曜石：本身就是方块，挖就完了", () => {
+    for (const item of ["dirt", "sand", "gravel", "obsidian", "netherrack"]) {
+      expect(gatherSkillFor(item)).toEqual({ name: "mine_vein", args: { ore: item } });
+    }
+  });
+
+  test("燧石来自挖砂砾、黏土球来自挖黏土", () => {
+    expect(gatherSkillFor("flint")).toEqual({ name: "mine_vein", args: { ore: "gravel" } });
+    expect(gatherSkillFor("clay_ball")).toEqual({ name: "mine_vein", args: { ore: "clay" } });
+  });
+
+  test("木头和矿石照旧", () => {
+    expect(gatherSkillFor("oak_log")).toEqual({ name: "chop_tree" });
+    expect(gatherSkillFor("iron_ore")).toEqual({ name: "mine_vein", args: { ore: "iron_ore" } });
+    expect(gatherSkillFor("raw_iron")).toEqual({ name: "mine_vein", args: { ore: "iron_ore" } });
+  });
+
+  test("「石头」在背包里算上圆石 —— 不然挖完也永远数不到", () => {
+    expect(namesFor("stone")).toContain("cobblestone");
+    expect(namesFor("oak_log")).toEqual(["oak_log"]); // 没写别名的不受影响
+  });
+
+  test("收集石头：背包里是圆石也算完成（实测就是卡在这儿）", () => {
+    const h = harness();
+    h.state.inventory = [{ name: "cobblestone", count: 20 }];
+    h.runner.setGoal({ kind: "collect", item: "stone", count: 20 }, "刨 20 个石头");
+    h.runner.tick();
+    expect(h.completed.at(-1)?.status).toBe("done");
+    expect(h.completed.at(-1)?.progress).toContain("20/20");
+  });
+
+  test("收集圆石：会真的去挖石头", async () => {
+    const h = harness();
+    h.runner.setGoal({ kind: "collect", item: "cobblestone", count: 8 }, "刨8个石头做石镐");
+    h.runner.tick();
+    await settle();
+    expect(h.skills).toEqual(["mine_vein"]);
+    expect(h.runner.currentGoal()?.status).toBe("active"); // 没挖到就别说完成了
   });
 });
 
@@ -108,6 +160,25 @@ describe("deliver — verified by him actually picking it up", () => {
     h.runner.tick();
     expect(h.completed.at(-1)?.status).toBe("failed");
     expect(h.completed.at(-1)?.error).toContain("stone_pickaxe");
+  });
+
+  test("缺东西时如实报「有几个 / 要几个」，不把有的说成没有", () => {
+    const h = harness();
+    // 实测：它手上拿着工作台，报错却说「不够：工作台×1、橡木原木×12」，看着像两样都没有
+    h.state.inventory = [
+      { name: "crafting_table", count: 1 },
+      { name: "oak_log", count: 4 },
+    ];
+    h.runner.setGoal(
+      { kind: "deliver", items: [{ name: "crafting_table", count: 1 }, { name: "oak_log", count: 12 }] },
+      "把工作台和木头交给 eason",
+    );
+    h.runner.tick();
+    const err = h.completed.at(-1)?.error ?? "";
+    expect(h.completed.at(-1)?.status).toBe("failed");
+    // 只报真正缺的那个，而且带上"有 4 / 要 12"
+    expect(err).toContain("oak_log 4/12");
+    expect(err).not.toContain("crafting_table");
   });
 
   test("drops the stuff, then waits for the pickup before calling it done", async () => {

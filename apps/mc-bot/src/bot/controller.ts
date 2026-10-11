@@ -251,24 +251,68 @@ export class BotController implements BotControl {
     await this.bot.lookAt(new Vec3(target.x, target.y + 1.6, target.z), true);
   }
 
+  /**
+   * 等一个条件成立。
+   *
+   * 存在的理由：**await 一个 mineflayer 调用不代表世界里真的变了** ——
+   * 服务端可以拒绝、包可以丢、手上的工具可能不对，可调用照样"成功"返回。
+   * 用户的原话是「真的操作而不是以为在操作」，所以每个动作之后都要回头看一眼。
+   */
+  private async waitFor(ok: () => boolean, timeoutMs = 700, stepMs = 60): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (ok()) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((r) => setTimeout(r, stepMs));
+    }
+  }
+
+  /** 背包里某个物品一共几个（按 id 数，中文名也能用）。 */
+  private countItem(name: string): number {
+    const key = toItemId(name);
+    return this.bot.inventory
+      .items()
+      .filter((i) => i.name === key)
+      .reduce((n, i) => n + i.count, 0);
+  }
+
   async mineBlock(pos: Vec3Lit): Promise<void> {
-    const block = this.bot.blockAt(new Vec3(pos.x, pos.y, pos.z));
+    const at = new Vec3(pos.x, pos.y, pos.z);
+    const block = this.bot.blockAt(at);
     if (!block) throw new Error("no block at that position");
+    const was = block.name;
     await this.bot.dig(block);
+    // 挖完回头看一眼：方块真的没了吗（工具不对 / 被拦的时候 dig 也会"成功"返回）
+    const gone = await this.waitFor(() => {
+      const now = this.bot.blockAt(at);
+      return !now || now.name === "air" || now.name !== was;
+    });
+    if (!gone) throw new Error(`挖了 ${was}，但方块还在原地（工具不对？还是服务端没认）`);
   }
 
   async placeBlock(pos: Vec3Lit, item: string): Promise<void> {
+    const at = new Vec3(pos.x, pos.y, pos.z);
     const ref = this.bot.blockAt(new Vec3(pos.x, pos.y - 1, pos.z));
     if (!ref) throw new Error("no reference block to place against");
     await this.equip(item);
     await this.bot.placeBlock(ref, new Vec3(0, 1, 0));
+    const placed = await this.waitFor(() => {
+      const now = this.bot.blockAt(at);
+      return !!now && now.name !== "air";
+    });
+    if (!placed) throw new Error(`${item} 没放上去（位置被占了？够不着？）`);
   }
 
   async dropItem(name: string, count?: number): Promise<void> {
     const key = toItemId(name);
+    const before = this.countItem(key);
     const item = this.bot.inventory.items().find((i) => i.name === key);
     if (!item) throw new Error(`no ${name} in inventory`);
-    await this.bot.toss(item.type, null, count ?? item.count);
+    const want = count ?? item.count;
+    await this.bot.toss(item.type, null, want);
+    // 丢完确认背包真的少了 —— 不然就是"以为丢了"
+    const gone = await this.waitFor(() => this.countItem(key) <= before - want, 900);
+    if (!gone) throw new Error(`${name} 没丢出去（背包里还有 ${this.countItem(key)} 个）`);
   }
 
   async equip(name: string, destination: "hand" | "head" | "torso" | "legs" | "feet" | "off-hand" = "hand"): Promise<void> {
@@ -572,9 +616,13 @@ export class BotController implements BotControl {
     const id = this.resolveItemId(itemName);
     if (id == null) throw new Error(`unknown item: ${itemName}`);
 
+    const key = this.bot.registry.items[id]?.name ?? toItemId(itemName);
+    const before = this.countItem(key);
+
     const inHand = this.bot.recipesFor(id, null, count, null);
     if (inHand.length > 0) {
       await this.bot.craft(inHand[0]!, count, undefined);
+      await this.verifyCrafted(key, before, itemName);
       return;
     }
 
@@ -584,6 +632,18 @@ export class BotController implements BotControl {
     const withTable = this.bot.recipesFor(id, null, count, table);
     if (withTable.length === 0) throw new Error(`can't craft ${itemName} (missing materials)`);
     await this.bot.craft(withTable[0]!, count, table);
+    await this.verifyCrafted(key, before, itemName);
+  }
+
+  /**
+   * 合成完回头看一眼背包。
+   *
+   * 「以为合成了」是最坑的一种假成功：craft 顺利返回、聊天里也报"做好了"，
+   * 可背包里什么都没有 —— 材料其实不够、或者窗口早关了。
+   */
+  private async verifyCrafted(key: string, before: number, label: string): Promise<void> {
+    const ok = await this.waitFor(() => this.countItem(key) > before, 1200);
+    if (!ok) throw new Error(`合成 ${label} 没成功 —— 背包里一个都没多出来`);
   }
 
   nearestHostile(opts?: { maxDistance?: number; preferThreatTo?: Vec3Lit }): EntityInfo | null {

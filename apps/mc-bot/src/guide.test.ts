@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { GameState } from "@itto/shared";
-import { STAGES, guideBriefing, guideProgress, guideStatus } from "@itto/shared";
+import { nearStation, STAGES, guideBriefing, guideProgress, guideStatus } from "@itto/shared";
 
 function state(inv: Array<[string, number]> = [], dimension = "overworld"): GameState {
   return {
@@ -24,6 +24,21 @@ describe("guideProgress", () => {
   test("logs move it to the workbench step", () => {
     const p = guideProgress(state([["oak_log", 4]]));
     expect(p.stage.id).toBe("bench");
+  });
+
+  test("世界里已经摆着工作台：这一步直接跳过 —— 别再做第二个", () => {
+    // 用户原话：「游戏环境中有工作台还要造」。根子就是进度只认背包、不认环境。
+    const s = state([["oak_log", 4]]);
+    expect(guideProgress(s).stage.id).toBe("bench"); // 没有它的话确实卡在工作台这步
+    s.nearStations = [{ name: "crafting_table", distance: 3, pos: { x: 3, y: 64, z: 0 } }];
+    expect(guideProgress(s).stage.id).toBe("stone"); // 环境里有 → 这步算过
+    expect(nearStation(s, "crafting_table")).toBe(true);
+    expect(nearStation(s, "furnace")).toBe(false);
+  });
+
+  test("工作台那一步的提示语点明了「周围有就直接用」", () => {
+    const bench = STAGES.find((st) => st.id === "bench")!;
+    expect(bench.hint).toContain("别再做");
   });
 
   test("a stone pickaxe + furnace counts as stone age", () => {

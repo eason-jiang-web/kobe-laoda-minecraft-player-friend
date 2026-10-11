@@ -8,18 +8,76 @@ const MAX_ROUNDS = 6;
 /** How long the player gets to pick dropped items up before we call it done anyway. */
 const PICKUP_WAIT_MS = 30_000;
 
+/**
+ * 这些东西在玩家眼里是**一回事**。
+ *
+ * 没有这一层的话，「收集 20 个石头」永远完不成 —— 挖石头掉的是**圆石**，
+ * 目标里写 stone，背包里就永远数不到（实测就是这样卡的）。
+ * 玩家不会卡在这儿：他说"石头"的时候，圆石当然算数。
+ */
+const SAME_AS: Record<string, string[]> = {
+  stone: ["stone", "cobblestone", "cobbled_deepslate", "deepslate"],
+  cobblestone: ["cobblestone", "cobbled_deepslate"],
+  log: ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log", "mangrove_log", "cherry_log", "pale_oak_log"],
+  planks: ["oak_planks", "birch_planks", "spruce_planks", "jungle_planks", "acacia_planks", "dark_oak_planks", "mangrove_planks", "cherry_planks", "pale_oak_planks", "crimson_planks", "warped_planks"],
+};
+
+/** 这个目标物品，背包里哪些东西算数。 */
+export function namesFor(item: string): string[] {
+  return SAME_AS[item] ?? [item];
+}
+
+/** 数背包（**包含等价物**）—— "收集石头"时圆石也算。 */
 function countIn(inventory: Array<{ name: string; count: number }>, item: string): number {
+  const want = new Set(namesFor(item));
+  return inventory.filter((i) => want.has(i.name)).reduce((n, i) => n + i.count, 0);
+}
+
+/** 只要名字对得上的（交付用 —— 丢东西必须丢对名字）。 */
+function countExact(inventory: Array<{ name: string; count: number }>, item: string): number {
   return inventory.filter((i) => i.name === item).reduce((n, i) => n + i.count, 0);
 }
 
-/** Which existing skill is the right tool for gathering this item. */
-function gatherSkillFor(item: string): { name: string; args?: Record<string, unknown> } | null {
+/**
+ * 挖这个方块会掉什么（名字不一样的那几种）。
+ * 这是最基础的常识：**圆石来自挖石头**，燧石来自挖砂砾。
+ */
+const BLOCK_TO_DROP: Record<string, string> = {
+  cobblestone: "stone",
+  cobbled_deepslate: "deepslate",
+  flint: "gravel",
+  clay_ball: "clay",
+  snowball: "snow_block",
+};
+
+/** 物品本身就是个方块：挖它就行。 */
+const DIGGABLE = new Set([
+  "stone", "deepslate", "dirt", "coarse_dirt", "rooted_dirt", "grass_block", "podzol", "mycelium",
+  "sand", "red_sand", "sandstone", "gravel", "clay", "snow_block", "snow", "ice", "packed_ice", "blue_ice",
+  "obsidian", "netherrack", "soul_sand", "soul_soil", "end_stone", "basalt", "blackstone", "tuff",
+  "andesite", "diorite", "granite", "calcite", "terracotta", "glowstone", "magma_block", "prismarine",
+  "mossy_cobblestone", "cobblestone", "nether_quartz_ore", "amethyst_block", "budding_amethyst",
+]);
+
+/**
+ * 这个物品该去世界里怎么弄到。
+ *
+ * 原来只有「木头 / 矿石 / 几颗宝石」三类，于是「刨 8 个石头做石镐」直接死在这儿：
+ * 圆石不在表里 → 「不知道用什么办法弄到 cobblestone」。可这是最基础的常识 ——
+ * 玩家不会卡在这儿，代码也不该。
+ */
+export function gatherSkillFor(item: string): { name: string; args?: Record<string, unknown> } | null {
   if (/(_log|_wood|_stem|_hyphae)$/.test(item)) return { name: "chop_tree" };
   if (/_ore$/.test(item)) return { name: "mine_vein", args: { ore: item } };
   if (item.startsWith("raw_")) return { name: "mine_vein", args: { ore: item.slice(4) + "_ore" } };
   if (["diamond", "emerald", "lapis_lazuli", "redstone", "coal", "quartz"].includes(item)) {
     return { name: "mine_vein", args: { ore: item + "_ore" } };
   }
+  // 挖方块掉的东西：圆石 ← 石头、燧石 ← 砂砾
+  const source = BLOCK_TO_DROP[item];
+  if (source) return { name: "mine_vein", args: { ore: source } };
+  // 它自己就是个方块：挖它
+  if (DIGGABLE.has(item)) return { name: "mine_vein", args: { ore: item } };
   return null;
 }
 
@@ -166,7 +224,12 @@ export class GoalRunner {
 
         const tool = gatherSkillFor(item);
         if (!tool) {
-          this.finish(goal, "failed", `不知道用什么办法弄到 ${item}（试试 fetch_item 或者换个目标）`);
+          this.finish(
+            goal,
+            "failed",
+            "不知道去哪弄 " + item + " —— 它多半得**合成**（craft_item）或者从箱子里拿（fetch_item），" +
+              "也可能是这个世界里没有。换个说法或者换个目标试试。",
+          );
           break;
         }
 
@@ -193,13 +256,23 @@ export class GoalRunner {
         const { items } = goal.intent;
 
         if (!goal.droppedAt) {
-          const missing = items.filter((it) => countIn(state.inventory, it.name) < it.count);
+          // 交付按**名字**算（丢东西必须丢对名字），但报错要说清「你有多少 / 要多少」——
+          // 原来只说「背包里不够：工作台×1、橡木原木×12」，看着像两样都没有，
+          // 而它当时手上正拿着工作台（实测把用户看糊涂了）。
+          const missing = items
+            .map((it) => ({ ...it, have: countExact(state.inventory, it.name) }))
+            .filter((it) => it.have < it.count);
           if (missing.length > 0) {
-            this.finish(
-              goal,
-              "failed",
-              `背包里不够：${missing.map((m) => m.name + "×" + m.count).join("、")}（先 collect 或者去箱子里取）`,
-            );
+            const detail = missing
+              .map((m) => {
+                const loose = countIn(state.inventory, m.name) - m.have;
+                return (
+                  m.name + " " + m.have + "/" + m.count +
+                  (loose > 0 ? "（等价物还有 " + loose + " 个，但丢东西得按名字丢）" : "")
+                );
+              })
+              .join("、");
+            this.finish(goal, "failed", "背包里不够：" + detail + "（先 collect 或者去箱子里取）");
             break;
           }
 
