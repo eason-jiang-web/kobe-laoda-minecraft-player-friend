@@ -28,7 +28,7 @@ import { connectWithRetry, shouldExplain } from "./util/connect-retry.js";
 import { assertSupportedVersion } from "./bot/versions.js";
 import { currentCaps } from "./value-caps.js";
 import { setLogLevel, logger } from "./util/logger.js";
-import { areaForGoal, HABIT } from "@itto/shared";
+import { areaForGoal, HABIT, isOwnerEcho } from "@itto/shared";
 
 const log = logger("main");
 
@@ -244,6 +244,8 @@ async function main() {
   // mineflayer Bot is recreated and rebound, so the brain's session survives.
   let activeBot = bot;
   let reconnecting = false;
+  /** 玩家上一句原话（用来识别"他在催"而不是"他在提新要求"）。 */
+  let lastOwnerChat: { text: string; at: number } | null = null;
 
   const onChat = (username: string, message: string) => {
     if (username === activeBot.username) return;
@@ -262,6 +264,8 @@ async function main() {
       const lower = message.toLowerCase();
       if (cfg.mc.wakeWords.some((w) => lower.includes(w.toLowerCase()))) memory.bumpHabit(HABIT.wake);
 
+      // 硬指令（#back 这种）**永远照做**，连按两次也照做两次 —— 它是"立刻执行"，
+      // 不是"跟大脑说话"，所以不走下面那道去重。
       const hit = matchCommand(message);
       if (hit) {
         memory.bumpHabit(HABIT.command(hit.command.trigger));
@@ -272,6 +276,17 @@ async function main() {
           .catch((e) => log.warn(`command ${hit.command.trigger} failed: ${(e as Error).message}`));
         return;
       }
+
+      // 同一句话他连说几遍 = **在催**，不是让你再答一遍。
+      // 实测：两分钟里同一句「跟我垂直挖矿」触发了 45 次唤醒、45 句回复。
+      // 他还在催就把窗口往后推 —— 一直催就一直不重复回应（第一遍已经开工了）。
+      const now = Date.now();
+      if (isOwnerEcho(lastOwnerChat, message, now)) {
+        lastOwnerChat = { text: message, at: now };
+        log.debug("他说了同一句话（在催），不重复回应：" + message.slice(0, 40));
+        return;
+      }
+      lastOwnerChat = { text: message, at: now };
     }
 
     pushChat(username, message);

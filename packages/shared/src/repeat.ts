@@ -101,6 +101,26 @@ export function repeatedOpener(
   return same.length >= max ? (same[same.length - 1] ?? null) : null;
 }
 
+/**
+ * 玩家把同一句话又说了一遍（时间窗内）。
+ *
+ * 为什么要拦：他说一遍你没做对，他会再说一遍 —— **那是催，不是让你再答一遍**。
+ * 实测两分钟里同一句「跟我垂直挖矿」触发了 45 次唤醒、45 句回复，
+ * 玩家看到的就是「话太多，还不干活」。
+ */
+export function isOwnerEcho(
+  prev: { text: string; at: number } | null,
+  message: string,
+  now: number,
+  windowMs = 20_000,
+): boolean {
+  if (!prev) return false;
+  if (now - prev.at >= windowMs) return false;
+  const a = normalizeLine(prev.text);
+  const b = normalizeLine(message);
+  return a.length > 0 && a === b;
+}
+
 /** 记一笔（顺手丢掉过期的，只留最近 keep 条）。 */
 export function rememberSaid(
   recent: SaidLine[],

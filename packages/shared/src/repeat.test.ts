@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   findRepeat,
+  isOwnerEcho,
   normalizeLine,
   openerOf,
   rememberSaid,
@@ -95,6 +96,42 @@ describe("repeatedOpener —— 字面不同但形状一样的复读", () => {
   test("太短的开头（「嗯」「好」）不当开场白算", () => {
     const recent = [said("嗯"), said("嗯")];
     expect(repeatedOpener("嗯", recent, T0 + 1000)).toBeNull();
+  });
+});
+
+describe("isOwnerEcho —— 他在催，不是让你再答一遍", () => {
+  const prev = { text: "跟我垂直挖矿", at: T0 };
+
+  test("同一句话 20 秒内再说 = 重复", () => {
+    expect(isOwnerEcho(prev, "跟我垂直挖矿", T0 + 5000)).toBe(true);
+    expect(isOwnerEcho(prev, "跟我垂直挖矿！", T0 + 5000)).toBe(true); // 标点不算
+  });
+
+  test("换了一句话就是新要求", () => {
+    expect(isOwnerEcho(prev, "跟我去砍树", T0 + 5000)).toBe(false);
+    expect(isOwnerEcho(prev, "把木头给我", T0 + 5000)).toBe(false);
+  });
+
+  test("隔了一会儿再说就重新算（他不是在催了）", () => {
+    expect(isOwnerEcho(prev, "跟我垂直挖矿", T0 + 21_000)).toBe(false);
+  });
+
+  test("没说过话就不算", () => {
+    expect(isOwnerEcho(null, "跟我垂直挖矿", T0)).toBe(false);
+  });
+
+  test("实测那一幕：36 秒里打了 8 遍同一句 → 只该处理一遍", () => {
+    // 照主循环里的规矩走：他还在催，窗口就往后推（第一遍已经开工了）。
+    // 那一幕一共触发了 45 次唤醒、45 句回复 —— 这里应该只剩 1 次。
+    let last: { text: string; at: number } | null = null;
+    let handled = 0;
+    for (let i = 0; i < 8; i++) {
+      const at = T0 + i * 4500;
+      const echo = isOwnerEcho(last, "跟我垂直挖矿", at);
+      last = { text: "跟我垂直挖矿", at }; // 处理还是催，都记一笔
+      if (!echo) handled++;
+    }
+    expect(handled).toBe(1);
   });
 });
 

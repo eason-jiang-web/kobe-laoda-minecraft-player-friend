@@ -81,6 +81,31 @@ export function gatherSkillFor(item: string): { name: string; args?: Record<stri
   return null;
 }
 
+/**
+ * 两个目标是不是同一件事。
+ *
+ * 为什么要判：实测两分钟里 set_goal 被调了 41 次（全是 follow），每次都会
+ * cancel 掉上一个 —— 它永远停在"刚开工"，从来没完工过（那两分钟 0 次任务结算），
+ * 玩家看到的就是「不干活」。
+ */
+export function sameIntent(a: BotIntent, b: BotIntent): boolean {
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case "skill":
+      return b.kind === "skill" && a.name === b.name;
+    case "collect":
+      // 数量也算 —— 「砍 8 个」跟「砍 64 个」不是一件事
+      return b.kind === "collect" && a.item === b.item && a.count === b.count;
+    case "deliver":
+      return b.kind === "deliver" && JSON.stringify(a.items) === JSON.stringify(b.items);
+    case "say":
+      return b.kind === "say" && a.text === b.text;
+    // follow / stop：同一种就是同一件事
+    default:
+      return true;
+  }
+}
+
 export interface GoalRunnerDeps {
   control: BotControl;
   /** Run a skill by name (wired to skills/index.ts runSkillByName). */
@@ -111,6 +136,9 @@ export class GoalRunner {
   constructor(private readonly deps: GoalRunnerDeps) {}
 
   setGoal(intent: BotIntent, label: string): BotGoal {
+    // 同一件事已经在跑：**别推倒重来**（不然它永远完不成，看起来就是"不干活"）
+    const cur = this.current;
+    if (cur && cur.status === "active" && sameIntent(cur.intent, intent)) return cur;
     this.cancel();
     this.current = this.make(intent, label);
     return this.current;

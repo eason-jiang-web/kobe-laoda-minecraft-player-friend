@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { BotControl, BotGoal, GameState } from "@itto/shared";
-import { gatherSkillFor, GoalRunner, namesFor } from "./goal-runner.js";
+import { gatherSkillFor, GoalRunner, namesFor, sameIntent } from "./goal-runner.js";
 
 /** Flush the microtask queue so a started skill/async step settles. */
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -100,6 +100,64 @@ describe("collect — verified by the inventory, not by the skill returning", ()
     expect(h.completed.at(-1)?.status).toBe("failed");
     expect(h.completed.at(-1)?.error).toContain("不知道去哪弄");
     expect(h.completed.at(-1)?.error).toContain("合成");
+  });
+});
+
+describe("set_goal 幂等 —— 同一件事别推倒重来（不干活的根子）", () => {
+  test("同一件事正在做：再设一次不重开（日志里那 41 次）", () => {
+    const h = harness();
+    // 不 tick：follow 一 tick 就"完成"了（它就是恢复跟随），这里要测的是
+    // "正在跑的目标被重复设"这种情况 —— 实测两分钟里发生了 41 次。
+    const first = h.runner.setGoal({ kind: "follow" }, "跟着他");
+    const again = h.runner.setGoal({ kind: "follow" }, "跟着他挖矿");
+    expect(again.id).toBe(first.id); // 还是那一个，没重开
+  });
+
+  test("真正的活不会被重复设的 follow 顶掉", () => {
+    const h = harness();
+    const work = h.runner.setGoal({ kind: "collect", item: "oak_log", count: 32 }, "砍 32 个木头");
+    h.runner.tick();
+    // 他每催一句，大脑就设一次 follow —— 但这件事没变，目标不该被重开
+    h.runner.setGoal({ kind: "collect", item: "oak_log", count: 32 }, "再砍点木头");
+    expect(h.runner.currentGoal()?.id).toBe(work.id);
+  });
+
+  test("换一件事就换目标", () => {
+    const h = harness();
+    const a = h.runner.setGoal({ kind: "follow" }, "跟着他");
+    const b = h.runner.setGoal({ kind: "collect", item: "oak_log", count: 8 }, "砍点木头");
+    expect(b.id).not.toBe(a.id);
+  });
+
+  test("同一件事但数量变了：按新的来", () => {
+    const h = harness();
+    const a = h.runner.setGoal({ kind: "collect", item: "oak_log", count: 8 }, "砍 8 个");
+    const b = h.runner.setGoal({ kind: "collect", item: "oak_log", count: 64 }, "砍 64 个");
+    expect(b.id).not.toBe(a.id);
+  });
+
+  test("同一个技能重复设：不重开", () => {
+    const h = harness();
+    const a = h.runner.setGoal({ kind: "skill", name: "assist_mining" }, "一起挖");
+    h.runner.tick();
+    const b = h.runner.setGoal({ kind: "skill", name: "assist_mining" }, "一起挖矿");
+    expect(b.id).toBe(a.id);
+  });
+
+  test("已经跑完的目标不算 —— 还能再设一次", async () => {
+    const h = harness();
+    h.runner.setGoal({ kind: "say", text: "yo" }, "say yo");
+    h.runner.tick();
+    await settle();
+    // say 完成后 current 清空，再设一次是新目标
+    const again = h.runner.setGoal({ kind: "say", text: "yo" }, "say yo");
+    expect(again.status).toBe("active");
+  });
+
+  test("sameIntent 只认同一件事", () => {
+    expect(sameIntent({ kind: "follow" }, { kind: "follow", range: 5 })).toBe(true);
+    expect(sameIntent({ kind: "follow" }, { kind: "stop" })).toBe(false);
+    expect(sameIntent({ kind: "skill", name: "a" }, { kind: "skill", name: "b" })).toBe(false);
   });
 });
 
