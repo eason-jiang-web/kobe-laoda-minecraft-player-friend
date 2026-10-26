@@ -30,6 +30,6 @@ console.log(cheatSheet(username, owner, COMMANDS, { host, port }, brain).join("\
 console.log("");
 console.log("  ============================================================");
 console.log("    这个窗口可以一直开着 —— 关掉不影响游戏。");
-console.log("    想再打开：桌面「牢大」按 6，或者双击本目录的 指令说明.cmd");
+console.log("    想再打开：桌面「牢大」按 3，或者双击本目录的 指令说明.cmd");
 console.log("  ============================================================");
 console.log("");

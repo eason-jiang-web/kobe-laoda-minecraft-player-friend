@@ -92,7 +92,7 @@ describe("cheatSheet — 菜单里那个单独的说明窗口", () => {
 
   test("tells you the window is disposable and how to reopen it", () => {
     expect(sheet).toContain("关掉不影响");
-    expect(sheet).toContain("菜单按 6");
+    expect(sheet).toContain("菜单按 3"); // 菜单只有 1~5 和 0，别写成按 6
   });
 
   test("reminds you to set the LAN port — with the port the bot actually uses", () => {
@@ -102,6 +102,14 @@ describe("cheatSheet — 菜单里那个单独的说明窗口", () => {
     expect(custom).toContain("默认是随机的"); // 说清为什么要手动改
     // 默认值也别忘了
     expect(cheatSheet("Laoda", "eason", COMMANDS).join("\n")).toContain("端口：填 25565");
+  });
+
+  test("说明书里写了「它会自己救命」—— 别让人以为它卡住就是坏了", () => {
+    expect(sheet).toContain("自己想办法");
+    expect(sheet).toContain("垫方块往上爬");
+    expect(sheet).toContain("插火把");
+    // 启动横幅里也有同一段
+    expect(startupBanner("Laoda", "eason", COMMANDS).join("\n")).toContain("挖穿");
   });
 
   test("says it waits instead of dying when it can't get in", () => {

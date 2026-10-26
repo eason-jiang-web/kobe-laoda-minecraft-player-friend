@@ -126,6 +126,22 @@ function brainLines(brain?: BrainStatus): string[] {
   return ["   ★ 大脑：" + cmd + " —— 说人话他听得懂。", ""];
 }
 
+/**
+ * 「它会自己救命」—— 横幅和说明书窗口共用。
+ * 这些是**身体自己做的**（不用你发指令），写出来是为了让你知道它卡住时在忙什么，
+ * 而不是以为它坏了。/follow play 那种要你发一句的，在命令表里。
+ */
+function selfHelpBlock(): string[] {
+  return [
+    "   它卡住的时候会自己想办法（不用你管）：",
+    "     · 树顶够不着   → 先跳 → 钻进树干 → 垫方块往上爬",
+    "     · 矿洞太黑     → 自己插火把（每挖 6 格看一次，够亮就不浪费）",
+    "     · 目标在墙后   → 把挡路的那两格挖穿",
+    "     · 卡住走不动   → 蹦一下 + 挖开身边的方块",
+    "     每一步都会确认真的做到了才继续（垫了没上去、火把没插亮，都算失败）。",
+  ];
+}
+
 /** 「说人话也行」—— 横幅和说明书窗口共用同一份。 */
 function plainTalkBlock(): string[] {
   return [
@@ -164,6 +180,7 @@ export function startupBanner(
     RULE,
     ...brainLines(brain),
     ...plainTalkBlock(),
+    ...selfHelpBlock(),
     "",
     ...opBlock(username),
     "",
@@ -174,7 +191,7 @@ export function startupBanner(
 }
 
 /**
- * 单独弹一个"说明书窗口"时打的东西（菜单按 1 / 按 6 就会开）。
+ * 单独弹一个"说明书窗口"时打的东西（菜单按 1 会顺带开，按 3 单独开）。
  *
  * 和启动横幅是**同一张命令表**渲染出来的 —— 加一条命令，两个窗口一起更新。
  * 区别只在于这里的顺序是"先提醒 /op，再列命令"，因为玩家开这个窗口就是为了查。
@@ -190,7 +207,7 @@ export function cheatSheet(
     "",
     RULE,
     "   牢大 · 指令表",
-    "   （这个窗口可以一直开着，关掉不影响他 —— 想再打开：菜单按 6）",
+    "   （这个窗口可以一直开着，关掉不影响他 —— 想再打开：菜单按 3）",
     RULE,
     "",
     "   ★ 第一步：在游戏里「对局域网开放」——",
@@ -214,6 +231,7 @@ export function cheatSheet(
     RULE,
     ...brainLines(brain),
     ...plainTalkBlock(),
+    ...selfHelpBlock(),
     RULE,
     "",
     "   （本窗口由「指令说明.cmd」打开；命令表变了它自动跟着变。）",
