@@ -82,6 +82,15 @@ export interface Config {
     cooldownMs: number;
     /** Cooldown for priority nudges (someone is talking to you right now). */
     chatCooldownMs: number;
+    /**
+     * 优先级唤醒（有人在跟它说话 / 有危险）用的**快模型**。
+     *
+     * 为什么分开：一次唤醒要调 3~4 次模型。pro 每次调用比 flash 慢 5 倍
+     * （实测 5.0s vs 1.0s），你说话它要 15~20 秒才反应，看着就像"不干活"。
+     * 所以：有人找你 -> 快模型（立刻反应）；它自己闲着琢磨 -> 聪明模型（想清楚）。
+     * BRAIN_FAST_MODEL。
+     */
+    fastModel?: string;
   };
   reconnect: {
     /** Auto-rejoin when kicked/disconnected (Minehut sleeps + kicks idle bots). */
@@ -138,6 +147,7 @@ export function loadConfig(): Config {
       dir: process.env.BRAIN_DIR || undefined,
       cooldownMs: num("BRAIN_COOLDOWN_MS", 10000),
       chatCooldownMs: num("BRAIN_CHAT_COOLDOWN_MS", 1500),
+      fastModel: process.env.BRAIN_FAST_MODEL?.trim() || undefined,
     },
     reconnect: {
       enabled: (process.env.RECONNECT_ENABLED ?? "true") !== "false",

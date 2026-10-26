@@ -27,6 +27,11 @@ export interface AgentBrainConfig {
   /** Shorter cooldown for priority nudges (someone is talking to you). */
   chatCooldownMs?: number;
   /**
+   * 优先级唤醒用的快模型（通过 ITTO_BRAIN_MODEL 传给大脑）。
+   * 有人跟你说话 = 等不起，用快的；自己闲着琢磨 = 用聪明但慢的。
+   */
+  fastModel?: string;
+  /**
    * 每次唤醒前算一段额外提示（追问额度、画像提醒……）。返回空/null 就不加。
    * 由 index.ts 接上 memory —— 这里不认识 WorldMemory，保持解耦。
    */
@@ -45,7 +50,7 @@ export function createAgentBrainSink(cfg: AgentBrainConfig): NudgeSink {
   let pending: { reason: string; state: GameState; priority: boolean } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  async function run(reason: string, state: GameState): Promise<void> {
+  async function run(reason: string, state: GameState, priority = false): Promise<void> {
     lastAt = Date.now();
     inflight = true;
 
@@ -55,13 +60,7 @@ export function createAgentBrainSink(cfg: AgentBrainConfig): NudgeSink {
         cwd: cfg.dir,
         stdout: "pipe",
         stderr: "pipe",
-        env: {
-          ...process.env,
-          // Structured copies of what we're asking about. The brain logs these
-          // for its training data without having to parse its own prompt back.
-          ITTO_BRAIN_REASON: reason,
-          ITTO_BRAIN_STATE: formatStateForPrompt(state),
-        },
+        env: brainEnv(reason, state, priority, cfg),
       });
       // Drain both pipes *while* waiting: an agent that prints more than the
       // pipe buffer holds would otherwise block on write and never exit.
@@ -97,7 +96,7 @@ export function createAgentBrainSink(cfg: AgentBrainConfig): NudgeSink {
       timer = null;
       const next = pending;
       pending = null;
-      if (next) void run(next.reason, next.state);
+      if (next) void run(next.reason, next.state, next.priority);
     }, wait);
   }
 
@@ -114,8 +113,31 @@ export function createAgentBrainSink(cfg: AgentBrainConfig): NudgeSink {
         schedule();
         return;
       }
-      await run(reason, state);
+      await run(reason, state, priority);
     },
+  };
+}
+
+/**
+ * 这次唤醒要传给大脑的环境变量。
+ *
+ * 单独抽出来是为了能测：**有人跟你说话（priority）走快模型，自己闲着琢磨走聪明模型**。
+ * 这个分工是唯一的改进点，写错了就白搭 —— 所以它必须能被单测钉住。
+ */
+export function brainEnv(
+  reason: string,
+  state: GameState,
+  priority: boolean,
+  cfg: Pick<AgentBrainConfig, "fastModel">,
+): Record<string, string | undefined> {
+  return {
+    ...(process.env as Record<string, string | undefined>),
+    // Structured copies of what we're asking about. The brain logs these
+    // for its training data without having to parse its own prompt back.
+    ITTO_BRAIN_REASON: reason,
+    ITTO_BRAIN_STATE: formatStateForPrompt(state),
+    // 有人在跟它说话 = 等不起 -> 快模型；自己琢磨 -> 不传，用大脑默认（聪明那个）。
+    ...(priority && cfg.fastModel ? { ITTO_BRAIN_MODEL: cfg.fastModel } : {}),
   };
 }
 

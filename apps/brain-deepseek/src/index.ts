@@ -18,7 +18,7 @@
  * Env (all optional except the key):
  *   DEEPSEEK_API_KEY          required
  *   DEEPSEEK_BASE_URL         default https://api.deepseek.com
- *   DEEPSEEK_MODEL            default deepseek-v4-pro (must support tool calling)
+ *   DEEPSEEK_MODEL            default deepseek-flash (must support tool calling)
  *   ITTO_MCP_URL              default http://localhost:3001/mcp
  *   BRAIN_MAX_STEPS           default 6   (model round-trips per nudge)
  *   BRAIN_BUDGET_MS           default 120000 (hard wall-clock cap for the run)
@@ -71,6 +71,8 @@ interface BrainConfig {
   maxToolChars: number;
   maxTokens: number;
   temperature: number;
+  /** 深度思考（reasoning）。默认关 —— 实时游戏等不起。 */
+  thinking: boolean;
   historyPath: string;
   historyKeep: number;
   /** 自修笔记的路径（见 apps/brain-deepseek/scripts/study-wiki.ts）。 */
@@ -95,7 +97,8 @@ function loadConfig(): BrainConfig {
   return {
     apiKey: process.env.DEEPSEEK_API_KEY ?? "",
     baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
-    model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-pro",
+    // 身体可以在单次唤醒里指定模型（BRAIN_FAST_MODEL）：有人跟你说话时用快的那个。
+    model: process.env.ITTO_BRAIN_MODEL?.trim() || process.env.DEEPSEEK_MODEL || "deepseek-flash",
     mcpUrl: process.env.ITTO_MCP_URL ?? "http://localhost:3001/mcp",
     maxSteps: num("BRAIN_MAX_STEPS", 6),
     budgetMs: num("BRAIN_BUDGET_MS", 120_000),
@@ -103,6 +106,8 @@ function loadConfig(): BrainConfig {
     maxToolChars: num("BRAIN_MAX_TOOL_CHARS", 4000),
     maxTokens: num("BRAIN_MAX_TOKENS", 2048),
     temperature: num("BRAIN_TEMPERATURE", 0.8),
+    /** 深度思考：默认关（开了每轮慢 10~20 倍，实时游戏等不起）。BRAIN_THINKING=true 打开。 */
+    thinking: process.env.BRAIN_THINKING === "true",
     historyPath: process.env.BRAIN_HISTORY_PATH ?? "data/brain-history.json",
     /** 自修笔记（bun run study:wiki 的产物）—— 要点会常驻系统提示词。 */
     wikiNotesPath: process.env.BRAIN_WIKI_NOTES_PATH ?? "data/wiki/notes.json",
@@ -195,8 +200,12 @@ function buildSystemPrompt(
     "说话用中文，短句，嗓门大；招牌台词「What can I say? Mamba out!」关键时候甩一句 —— 具体人设以上面那段为准。",
     "",
     "Rules of engagement:",
-    "- The snapshot in the prompt is already a moment stale. Read live state first: "
-      + "call read_resource with itto://state/current.txt (or itto://state/current for JSON).",
+    "- 上面那份状态快照，就是**叫醒你那一刻**的真实状态，绝大部分情况够用 —— "
+      + "**别每轮都先 read_resource**（每读一次多一次模型往返，慢的模型上就是白等 2~4 秒）。"
+      + "只有快照里没写、又确实需要的东西（某个方块/生物的精确坐标）才去读："
+      + "read_resource with itto://state/current.txt (or itto://state/current for JSON).",
+    "- **少走冤枉路**：能一步做完的事别拆成三步。叫醒你是因为有值得反应的事 —— "
+      + "该动手就动手，没什么可做就**直接结束这一轮**（别为了「看看情况」反复读状态）。",
     "- 想说话只有一条路：调 chat 工具（中文，一两句，偶尔带一句 man / What can I say）。",
     "- **你最后写的那段文字，玩家看不见** —— 游戏里只有 chat 工具发出去的话才算数。"
       + "所以不想说就**什么都别调、直接结束这一轮**；千万别写一句「我不吭声了」当结尾 —— "
@@ -408,6 +417,7 @@ async function main(): Promise<void> {
     model: cfg.model,
     temperature: cfg.temperature,
     maxTokens: cfg.maxTokens,
+    thinking: cfg.thinking,
   });
 
   const client = new Client({ name: "itto-brain-deepseek", version: "0.0.0" }, { capabilities: {} });

@@ -661,7 +661,10 @@ bun test                     # 单元测试
 
 ## 7. 成本 / 节奏
 
-- 默认模型 `deepseek-v4-pro`（API 只认 `deepseek-flash` / `deepseek-v4-pro`，两个都支持工具调用；想更快更省就换 flash）。**必须**用支持工具调用的：不支持的话它只会聊天、不会动手（老的 `deepseek-reasoner` 就是这样）
+- **双模型**（API 只认 `deepseek-flash` / `deepseek-v4-pro`，两个都支持工具调用）：
+  `DEEPSEEK_MODEL` 是**聪明模型**（默认 `deepseek-v4-pro`，它自己闲着琢磨时用）；
+  `BRAIN_FAST_MODEL` 是**快模型**（默认 `deepseek-flash`，你说话/有危险时用）。
+  实测每次调用 pro 比 flash 慢 5 倍（5.0s vs 1.0s），一次唤醒要调 3~4 次 —— 全用 pro 的话你一句话它要 15~20 秒才反应。**必须**用支持工具调用的：不支持的话它只会聊天、不会动手（老的 `deepseek-reasoner` 就是这样）
   function calling，只能聊天不能动手。
 - 一次唤醒 ≈ 1~2 次请求，几千 token 输入 + 一句话输出。
 - 想更省 / 更安静：

@@ -106,7 +106,7 @@ try {
       ...process.env,
       DEEPSEEK_API_KEY: "sk-smoke-test-not-a-real-key",
       DEEPSEEK_BASE_URL: "http://127.0.0.1:" + modelServer.port,
-      DEEPSEEK_MODEL: "deepseek-v4-pro",
+      DEEPSEEK_MODEL: "deepseek-flash",
       ITTO_MCP_URL: "http://127.0.0.1:" + mcpPort + "/mcp",
       BRAIN_HISTORY_PATH: HISTORY,
       BRAIN_DEBUG: "1",

@@ -297,6 +297,8 @@ bun run doctor        # 自检：哪没配好它会直接说，并告诉你怎�
 | `MC_REPORT_ITEMS` | 攒够多少跟你报一声，如 `any_log:128,rare:10` |
 | `MC_GAME_DIR` | 你的游戏目录（读中文物品名 + 自动开 op 用；不填会自动找） |
 | `DEEPSEEK_API_KEY` | DeepSeek 的 key（大脑靠它思考） |
+| `DEEPSEEK_MODEL` | 聪明模型：它自己闲着琢磨时用（默认 `deepseek-v4-pro`） |
+| `BRAIN_FAST_MODEL` | 快模型：你说话/有危险时用（默认 `deepseek-flash`，实测每次调用快 5 倍） |
 | `BRAIN_ENABLED` | 大脑开关，**默认开着**。关掉的话它照样进游戏、听指令，但不会跟你说话 |
 | `BRAIN_CMD` | 大脑是什么，默认内置 DeepSeek；想换成别的 agent 就改这行 |
 

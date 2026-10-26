@@ -163,6 +163,8 @@ async function main() {
           dir: cfg.brain.dir,
           cooldownMs: cfg.brain.cooldownMs,
           chatCooldownMs: cfg.brain.chatCooldownMs,
+          // 你说话它要秒回：优先唤醒走快模型，自己发呆时才用聪明模型
+          fastModel: cfg.brain.fastModel,
           // 「这件事别再问了」的第二道保险：开口之前就让它知道额度用完了
           extraPrompt: () => memory.askHintLine(),
         })

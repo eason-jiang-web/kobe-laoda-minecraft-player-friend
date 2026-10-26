@@ -39,6 +39,16 @@ export interface DeepSeekOptions {
   maxTokens?: number;
   timeoutMs?: number;
   maxRetries?: number;
+  /**
+   * 要不要「深度思考」（reasoning）。默认**关**。
+   *
+   * 实测（2026-10，真实对局日志）：
+   *   pro 开思考   平均 25.7 秒一次唤醒，最慢 116.8 秒
+   *   pro 关思考   平均 1.2~1.8 秒（同样的工具调用能力）
+   * 游戏是实时的 —— 一次唤醒 26 秒，玩家只会觉得"它不动了"。
+   * 想要更聪明的判断可以 BRAIN_THINKING=true 换回来。
+   */
+  thinking?: boolean;
 }
 
 export class DeepSeekError extends Error {
@@ -53,11 +63,12 @@ export class DeepSeekError extends Error {
 
 export const DEEPSEEK_DEFAULTS = {
   baseUrl: "https://api.deepseek.com",
-  model: "deepseek-v4-pro",
+  model: "deepseek-flash",
   temperature: 0.8,
   maxTokens: 2048,
   timeoutMs: 60_000,
   maxRetries: 2,
+  thinking: false,
 } as const;
 
 function sleep(ms: number): Promise<void> {
@@ -83,6 +94,7 @@ export class DeepSeekClient {
   private readonly maxTokens: number;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
+  private readonly thinking: boolean;
 
   constructor(opts: DeepSeekOptions) {
     if (!opts.apiKey) {
@@ -95,6 +107,7 @@ export class DeepSeekClient {
     this.maxTokens = opts.maxTokens ?? DEEPSEEK_DEFAULTS.maxTokens;
     this.timeoutMs = opts.timeoutMs ?? DEEPSEEK_DEFAULTS.timeoutMs;
     this.maxRetries = opts.maxRetries ?? DEEPSEEK_DEFAULTS.maxRetries;
+    this.thinking = opts.thinking ?? DEEPSEEK_DEFAULTS.thinking;
   }
 
   get model(): string {
@@ -113,6 +126,9 @@ export class DeepSeekClient {
       max_tokens: this.maxTokens,
       stream: false,
     };
+    // 关掉深度思考：不关的话模型会先"想"几十秒再动手，游戏里就是卡着不动。
+    // 两个模型都认这个参数（不认的会被它在服务端忽略，不会报错）。
+    if (!this.thinking) body.thinking = { type: "disabled" };
     if (tools.length > 0) {
       body.tools = tools;
       body.tool_choice = "auto";
