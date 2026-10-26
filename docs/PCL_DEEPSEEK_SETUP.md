@@ -661,7 +661,7 @@ bun test                     # 单元测试
 
 ## 7. 成本 / 节奏
 
-- 默认模型 `deepseek-chat`。**必须**用它：`deepseek-reasoner` 不支持
+- 默认模型 `deepseek-flash`（API 只认 `deepseek-flash` / `deepseek-v4-pro`，两个都支持工具调用）。**必须**用支持工具调用的：不支持的话它只会聊天、不会动手（老的 `deepseek-reasoner` 就是这样）
   function calling，只能聊天不能动手。
 - 一次唤醒 ≈ 1~2 次请求，几千 token 输入 + 一句话输出。
 - 想更省 / 更安静：

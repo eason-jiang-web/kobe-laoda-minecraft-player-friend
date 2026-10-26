@@ -18,7 +18,7 @@
  * Env (all optional except the key):
  *   DEEPSEEK_API_KEY          required
  *   DEEPSEEK_BASE_URL         default https://api.deepseek.com
- *   DEEPSEEK_MODEL            default deepseek-chat (deepseek-reasoner can't call tools)
+ *   DEEPSEEK_MODEL            default deepseek-flash (must support tool calling)
  *   ITTO_MCP_URL              default http://localhost:3001/mcp
  *   BRAIN_MAX_STEPS           default 6   (model round-trips per nudge)
  *   BRAIN_BUDGET_MS           default 120000 (hard wall-clock cap for the run)
@@ -95,7 +95,7 @@ function loadConfig(): BrainConfig {
   return {
     apiKey: process.env.DEEPSEEK_API_KEY ?? "",
     baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
-    model: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
+    model: process.env.DEEPSEEK_MODEL ?? "deepseek-flash",
     mcpUrl: process.env.ITTO_MCP_URL ?? "http://localhost:3001/mcp",
     maxSteps: num("BRAIN_MAX_STEPS", 6),
     budgetMs: num("BRAIN_BUDGET_MS", 120_000),

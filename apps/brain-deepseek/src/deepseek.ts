@@ -53,7 +53,7 @@ export class DeepSeekError extends Error {
 
 export const DEEPSEEK_DEFAULTS = {
   baseUrl: "https://api.deepseek.com",
-  model: "deepseek-chat",
+  model: "deepseek-flash",
   temperature: 0.8,
   maxTokens: 2048,
   timeoutMs: 60_000,
