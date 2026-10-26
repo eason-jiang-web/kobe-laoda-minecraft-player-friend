@@ -571,6 +571,7 @@ export class BotController implements BotControl {
     if (!block || block.name === "air") return false;
     const wasName = block.name;
 
+    // 自救阶梯：走过去 → 跳 → 钻进树干 → 挖穿挡路的 → 脱困 → 垫方块上爬
     await this.gotoSafe(new goals.GoalGetToBlock(pos.x, pos.y, pos.z), 8000);
     if (!this.inReach(v)) await this.jumpOnce();
     if (!this.inReach(v)) {
@@ -579,7 +580,23 @@ export class BotController implements BotControl {
       if (!this.inReach(v)) await this.jumpOnce();
     }
     if (!this.inReach(v)) {
-      log.debug(`digAt: 还是够不着 (${pos.x},${pos.y},${pos.z})`);
+      // 隔着一层石头：直接挖穿（玩家不会绕地球一圈）
+      await this.digThrough(v);
+      if (!this.inReach(v)) await this.jumpOnce();
+    }
+    if (!this.inReach(v)) {
+      // 路被卡住了：蹦一下 / 挖开身边的方块
+      await this.unstuck();
+      if (!this.inReach(v)) await this.jumpOnce();
+    }
+    if (!this.inReach(v)) {
+      // 目标在上面且实在够不着：垫方块往上爬（最多垫 2 格，别把方块败光）
+      for (let i = 0; i < 2 && !this.inReach(v); i++) {
+        if (!(await this.pillarUp())) break;
+      }
+    }
+    if (!this.inReach(v)) {
+      log.debug(`digAt: 跳了、挖了、垫了还是够不着 (${pos.x},${pos.y},${pos.z})`);
       return false;
     }
 
@@ -598,6 +615,158 @@ export class BotController implements BotControl {
     return gone;
   }
 
+  /** 拿来垫脚的方块（便宜、好挖、管够的那几种）。 */
+  private static readonly PILLAR_BLOCKS = [
+    "cobblestone", "cobbled_deepslate", "dirt", "netherrack", "stone", "deepslate",
+    "andesite", "diorite", "granite", "sandstone", "tuff",
+  ];
+
+  /**
+   * **垫一格往上爬** —— 树顶实在够不着的时候用（玩家就是这么干的）。
+   *
+   * 技巧：脚下那格必须是实心的；跳起来的一瞬间往脚下放方块。
+   * 返回 true 只代表**真的升上去了**（位置验证，不是"以为垫了"）。
+   */
+  async pillarUp(): Promise<boolean> {
+    const items = this.bot.inventory.items();
+    const block =
+      items.find((i) => BotController.PILLAR_BLOCKS.includes(i.name)) ??
+      items.find((i) => /_planks$/.test(i.name));
+    if (!block) return false;
+
+    const feet = this.bot.entity.position;
+    const below = this.bot.blockAt(feet.offset(0, -1, 0));
+    if (!below || below.boundingBox === "empty") return false; // 脚下是空的，垫不了
+
+    await this.bot.equip(block, "hand").catch(() => undefined);
+    const y0 = this.bot.entity.position.y;
+    this.bot.setControlState("jump", true);
+    await new Promise((r) => setTimeout(r, 110));
+    try {
+      await this.bot.placeBlock(below, new Vec3(0, 1, 0));
+    } catch {
+      // 跳的时机不对会放空，下面用"位置有没有变"来判断，不慌
+    }
+    await new Promise((r) => setTimeout(r, 180));
+    this.bot.setControlState("jump", false);
+
+    const up = await this.waitFor(() => this.bot.entity.position.y > y0 + 0.4, 900);
+    if (!up) log.debug("pillarUp: 垫了但没上去");
+    return up;
+  }
+
+  /**
+   * **把挡在路上的方块挖掉** —— 目标在墙后面、隔着一层石头的时候。
+   *
+   * 玩家不会为了够一块石头绕地球一整圈，他会直接挖穿。
+   * 从眼睛朝目标做一次射线采样，遇到实心方块就挖，最多挖 2 格（别把山挖穿）。
+   * 返回挖掉了几块。
+   */
+  async digThrough(target: Vec3Lit | Vec3): Promise<number> {
+    const t = target instanceof Vec3 ? target : new Vec3(target.x, target.y, target.z);
+    const eye = this.bot.entity.position.offset(0, 1.6, 0);
+    const dir = t.minus(eye);
+    const dist = dir.norm();
+    if (!Number.isFinite(dist) || dist < 0.6) return 0;
+    const step = dir.scaled(1 / dist);
+
+    let dug = 0;
+    for (let d = 0.6; d < dist - 0.5 && dug < 2; d += 0.5) {
+      const p = eye.plus(step.scaled(d)).floor();
+      const b = this.bot.blockAt(p);
+      if (!b || b.boundingBox === "empty") continue; // 空气，继续往前看
+      if (b.position.distanceTo(t) < 0.8) break; // 到目标了，别把目标挖了
+      const tool = this.bot.pathfinder.bestHarvestTool(b);
+      if (tool) await this.bot.equip(tool, "hand").catch(() => undefined);
+      try {
+        await this.bot.dig(b);
+        dug++;
+      } catch {
+        break;
+      }
+    }
+    if (dug > 0) log.debug("digThrough: 挖穿了 " + dug + " 格挡路的方块");
+    return dug;
+  }
+
+  /**
+   * **卡住了自救**：先蹦一下往前蹭；还不动就把身边挡路的方块挖掉再蹭。
+   * 返回 true = 位置真的变了（不是"以为动了"）。
+   */
+  async unstuck(): Promise<boolean> {
+    const before = this.bot.entity.position.clone();
+    const moved = () => this.waitFor(() => this.bot.entity.position.distanceTo(before) > 0.6, 450);
+
+    this.bot.setControlState("jump", true);
+    this.bot.setControlState("forward", true);
+    await new Promise((r) => setTimeout(r, 350));
+    this.bot.setControlState("forward", false);
+    this.bot.setControlState("jump", false);
+    if (await moved()) return true;
+
+    // 还卡着：把四个方向挡路的挖掉（bedrock 挖不动，跳过）
+    const feet = this.bot.entity.position.floor();
+    const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dz] of dirs) {
+      const b = this.bot.blockAt(feet.offset(dx, 0, dz));
+      if (!b || b.boundingBox === "empty" || b.name === "bedrock") continue;
+      try {
+        await this.bot.dig(b);
+      } catch {
+        // 挖不动就换下一个方向
+      }
+    }
+    this.bot.setControlState("forward", true);
+    await new Promise((r) => setTimeout(r, 350));
+    this.bot.setControlState("forward", false);
+    const ok = await moved();
+    if (ok) log.debug("unstuck: 挖开之后出来了");
+    return ok;
+  }
+
+  /** 这个位置亮不亮（方块光 / 天光取大的）。 */
+  private lightAt(pos: Vec3): number {
+    const b = this.bot.blockAt(pos);
+    if (!b) return 15; // 没加载就当亮着，别乱插火把
+    const raw = b as unknown as { light?: number; skyLight?: number };
+    return Math.max(raw.light ?? 0, raw.skyLight ?? 0);
+  }
+
+  /**
+   * **太黑了就自己插火把** —— 下矿下到伸手不见五指，它会先点灯再干活。
+   *
+   * 找脚边一圈"下面是实心、上面是空"的地方放；放完看光照有没有真的上去
+   * （没上去就换下一个点，全都不行就返回 false，不假装成功）。
+   */
+  async ensureLight(): Promise<boolean> {
+    const feet = this.bot.entity.position;
+    if (this.lightAt(feet) >= 7) return false; // 够亮，不用管
+
+    const torch = this.bot.inventory.items().find((i) => /_?torch$/.test(i.name));
+    if (!torch) return false;
+    await this.bot.equip(torch, "hand").catch(() => undefined);
+
+    // 脚边四个方向 + 脚下：找能放火把的实心面
+    const offsets: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dz] of offsets) {
+      const ref = this.bot.blockAt(feet.offset(dx, -1, dz));
+      if (!ref || ref.boundingBox === "empty") continue;
+      const above = this.bot.blockAt(ref.position.offset(0, 1, 0));
+      if (!above || above.boundingBox !== "empty") continue;
+      try {
+        await this.bot.placeBlock(ref, new Vec3(0, 1, 0));
+      } catch {
+        continue;
+      }
+      const lit = await this.waitFor(() => this.lightAt(feet) >= 7, 700);
+      if (lit) {
+        log.debug("ensureLight: 点亮了 " + Math.round(feet.x) + "," + Math.round(feet.y) + "," + Math.round(feet.z));
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** 挖一串方块，只数**真的挖掉的**（够不着的不算，别自欺欺人）。 */
   async mineMany(positions: Vec3Lit[]): Promise<number> {
     let mined = 0;
@@ -606,6 +775,14 @@ export class BotController implements BotControl {
         if (await this.digAt(p)) mined++;
       } catch (e) {
         log.debug(`mineMany skip (${p.x},${p.y},${p.z}): ${(e as Error).message}`);
+      }
+      // 挖着挖着天黑了就自己点灯（每 6 格看一次，别每格都找火炬）
+      if (mined > 0 && mined % 6 === 0) {
+        try {
+          await this.ensureLight();
+        } catch {
+          // 点灯失败不该影响挖矿
+        }
       }
     }
     return mined;

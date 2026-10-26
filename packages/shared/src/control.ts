@@ -117,6 +117,24 @@ export interface BotControl {
   /** Path to + mine a list of coords in order, best-effort. Returns count mined. */
   mineMany(positions: Vec3Lit[]): Promise<number>;
 
+  /**
+   * **垫一格往上爬**（拿背包里的方块）。够不着的树顶就靠它。
+   * 返回 true = 真的升上去了（不是"以为垫了"）。
+   */
+  pillarUp(): Promise<boolean>;
+
+  /**
+   * **太黑了就自己插火把**（挖矿下井时用），不用等大脑发话。
+   * 返回 true = 真的插上了、而且真的亮了。
+   */
+  ensureLight(): Promise<boolean>;
+
+  /** **把挡在路上的方块挖掉**（目标在墙后面）。返回挖掉几块。 */
+  digThrough(target: Vec3Lit): Promise<number>;
+
+  /** **卡住了自救**：蹦一下 / 挖开身边的方块。返回 true = 位置真的变了。 */
+  unstuck(): Promise<boolean>;
+
   /** Walk to + pick up dropped item entities within radius. Returns count collected. */
   collectNearbyDrops(opts?: { radius?: number; timeoutMs?: number }): Promise<number>;
 

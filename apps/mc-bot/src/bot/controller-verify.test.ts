@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Bot } from "mineflayer";
+import { Vec3 } from "vec3";
 import type { Config } from "../config.js";
 import { BotController } from "./controller.js";
 
@@ -38,6 +39,116 @@ describe("mineBlock —— 挖完要回头看一眼", () => {
       },
     });
     await expect(c.mineBlock({ x: 0, y: 64, z: 0 })).resolves.toBeUndefined();
+  });
+});
+
+describe("自救 —— 够不着/看不见/卡住了自己想办法", () => {
+  /** 造一个假身体；blockAt 用回调，方便按坐标编场景。 */
+  function bot(over: Record<string, unknown>) {
+    const fake: Record<string, unknown> = {
+      username: "Laoda",
+      chat: () => {},
+      entity: { position: new Vec3(0, 64, 0), onGround: true },
+      setControlState: () => {},
+      equip: async () => {},
+      inventory: { items: () => [] },
+      registry: { items: {}, itemsByName: {} },
+      pathfinder: { goto: async () => {}, stop: () => {}, bestHarvestTool: () => null },
+      dig: async () => {},
+      blockAt: () => null,
+      ...over,
+    };
+    return { fake, c: new BotController(fake as unknown as Bot, {} as Config) };
+  }
+
+  test("垫方块：位置真的升上去了才算成功", async () => {
+    const { fake, c } = bot({
+      inventory: { items: () => [{ name: "cobblestone", type: 1, count: 8 }] },
+      blockAt: () => ({ name: "stone", boundingBox: "block", position: new Vec3(0, 63, 0) }),
+      placeBlock: async () => {
+        (fake.entity as { position: Vec3 }).position = new Vec3(0, 65, 0);
+      },
+    });
+    expect(await c.pillarUp()).toBe(true);
+  });
+
+  test("垫方块：放了但没上去 → 老实说失败（不假装）", async () => {
+    const { c } = bot({
+      inventory: { items: () => [{ name: "cobblestone", type: 1, count: 8 }] },
+      blockAt: () => ({ name: "stone", boundingBox: "block", position: new Vec3(0, 63, 0) }),
+      placeBlock: async () => {},
+    });
+    expect(await c.pillarUp()).toBe(false);
+  });
+
+  test("垫方块：背包里没方块 → 直接失败", async () => {
+    const { c } = bot({ inventory: { items: () => [] } });
+    expect(await c.pillarUp()).toBe(false);
+  });
+
+  test("插火把：够黑 + 有火把 → 真的点亮了", async () => {
+    let lit = false;
+    const { c } = bot({
+      entity: { position: new Vec3(0, 30, 0), onGround: true },
+      inventory: { items: () => [{ name: "torch", type: 1, count: 4 }] },
+      blockAt: (p: Vec3) =>
+        p.y >= 30
+          ? { name: "air", boundingBox: "empty", light: lit ? 7 : 0, skyLight: 0 }
+          : { name: "stone", boundingBox: "block", light: 0, skyLight: 0, position: p },
+      placeBlock: async () => {
+        lit = true;
+      },
+    });
+    expect(await c.ensureLight()).toBe(true);
+  });
+
+  test("插火把：已经很亮就不浪费火把", async () => {
+    const { c } = bot({
+      entity: { position: new Vec3(0, 64, 0), onGround: true },
+      inventory: { items: () => [{ name: "torch", type: 1, count: 4 }] },
+      blockAt: () => ({ name: "air", boundingBox: "empty", light: 15, skyLight: 15 }),
+    });
+    expect(await c.ensureLight()).toBe(false);
+  });
+
+  test("插火把：没火把就老实说没点", async () => {
+    const { c } = bot({
+      entity: { position: new Vec3(0, 30, 0), onGround: true },
+      inventory: { items: () => [] },
+      blockAt: () => ({ name: "air", boundingBox: "empty", light: 0, skyLight: 0 }),
+    });
+    expect(await c.ensureLight()).toBe(false);
+  });
+
+  test("挖穿：隔着一堵墙会把挡路的那两格挖掉", async () => {
+    const dug: Vec3[] = [];
+    const { c } = bot({
+      entity: { position: new Vec3(0, 64, 0), onGround: true },
+      blockAt: (p: Vec3) =>
+        Math.floor(p.y) === 65 && Math.floor(p.z) >= 1 && Math.floor(p.z) <= 2
+          ? { name: "stone", boundingBox: "block", position: p }
+          : { name: "air", boundingBox: "empty", position: p },
+      dig: async (b: { position: Vec3 }) => {
+        dug.push(b.position);
+      },
+    });
+    const n = await c.digThrough({ x: 0, y: 66, z: 4 });
+    expect(n).toBeGreaterThan(0);
+    expect(dug.length).toBe(n);
+  });
+
+  test("脱困：能蹦出去的就不挖方块", async () => {
+    const { fake, c } = bot({
+      setControlState: (k: string, v: boolean) => {
+        if (k === "forward" && v) (fake.entity as { position: Vec3 }).position = new Vec3(0, 64, 2);
+      },
+    });
+    expect(await c.unstuck()).toBe(true);
+  });
+
+  test("脱困：怎么都动不了 → 老实说没出来", async () => {
+    const { c } = bot({});
+    expect(await c.unstuck()).toBe(false);
   });
 });
 
