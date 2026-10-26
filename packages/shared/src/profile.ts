@@ -11,6 +11,7 @@
  *
  * 全是纯函数 —— 存盘在 mc-bot，摘要进提示词。
  */
+import { activityLabel, type PlayerActivity } from "./activity.js";
 
 export interface HabitCount {
   /** 见 HABIT 里那几个构造函数。 */
@@ -140,11 +141,15 @@ export const HABIT = {
   wake: "wake",
   /** 你问了他几次问题（问太多会变成审讯室，这个数字要能看见）。 */
   asked: "asked",
+  /** 他常干什么活（挖矿 / 砍树 / 盖东西…）—— 学他的动作就靠这个。 */
+  activity: (kind: string) => "act:" + kind,
 } as const;
 
 export interface HabitSummary {
   commands: Array<{ trigger: string; n: number }>;
   hours: Array<{ hour: number; n: number }>;
+  /** 他常干的活（按次数）。 */
+  activities: Array<{ kind: string; n: number }>;
   chatLines: number;
   avgChars: number;
   asked: number;
@@ -153,6 +158,7 @@ export interface HabitSummary {
 export function summarizeHabits(habits: HabitCount[]): HabitSummary {
   const commands: Array<{ trigger: string; n: number }> = [];
   const hours: Array<{ hour: number; n: number }> = [];
+  const activities: Array<{ kind: string; n: number }> = [];
   let chatLines = 0;
   let chatChars = 0;
   let asked = 0;
@@ -165,12 +171,14 @@ export function summarizeHabits(habits: HabitCount[]): HabitSummary {
     } else if (h.key === HABIT.chat) chatLines = h.n;
     else if (h.key === HABIT.chatChars) chatChars = h.n;
     else if (h.key === HABIT.asked) asked = h.n;
+    else if (h.key.startsWith("act:")) activities.push({ kind: h.key.slice(4), n: h.n });
   }
 
   const desc = (a: { n: number }, b: { n: number }) => b.n - a.n;
   return {
     commands: commands.sort(desc).slice(0, 3),
     hours: hours.sort(desc).slice(0, 3).sort((a, b) => a.hour - b.hour),
+    activities: activities.sort(desc).slice(0, 3),
     chatLines,
     avgChars: chatLines > 0 ? Math.round(chatChars / chatLines) : 0,
     asked,
@@ -207,6 +215,10 @@ export function habitLine(summary: HabitSummary): string {
     const a = summary.avgChars;
     const style = a <= 8 ? "说话很短（平均 " + a + " 字）" : a <= 25 ? "说话正常（平均 " + a + " 字）" : "话比较多（平均 " + a + " 字）";
     bits.push(style);
+  }
+  if (summary.activities.length > 0) {
+    // 学他的动作：他常干什么，它就偏向干什么
+    bits.push("常干 " + summary.activities.map((a) => activityLabel(a.kind as PlayerActivity)).join("、"));
   }
   const hours = hourRanges(summary.hours);
   if (hours.length > 0) bits.push("常在 " + hours + " 出现");

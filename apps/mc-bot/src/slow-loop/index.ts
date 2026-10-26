@@ -17,7 +17,9 @@ import { MilestoneTracker, parseMilestones } from "./milestones.js";
 import { memeHint, rollMeme } from "./meme.js";
 import {
   canMine,
+  guessPlayerActivity,
   guideBriefing,
+  HABIT,
   isValuableOre,
   needForOre,
   oreValue,
@@ -77,6 +79,8 @@ export class SlowLoop {
    * 每次都把同一个进度换个说法再报一遍）。
    */
   private readonly lastFired = new Map<string, number>();
+  /** 上次采样"他在干嘛"的时间（学他的动作，30 秒一次就够）。 */
+  private lastActivityAt = 0;
   /** A goal that just finished, waiting to be surfaced to the brain once. */
   private lastCompleted: BotGoal | null = null;
   /** 上次扫矿的时间（机会主义采矿的节流）。 */
@@ -163,6 +167,16 @@ export class SlowLoop {
   /** 上一轮闲下来是干活还是陪聊 —— 两种轮流来，别永远只知道干活。 */
   private autoplayMood: AutoplayMood = "work";
 
+  /** 采样他在干嘛（节流 30 秒），记进画像。 */
+  private sampleActivity(state: GameState): void {
+    const now = Date.now();
+    if (now - this.lastActivityAt < 30_000) return;
+    this.lastActivityAt = now;
+    const act = guessPlayerActivity(state);
+    if (act.kind === "unknown") return;
+    this.memory.bumpHabit(HABIT.activity(act.kind));
+  }
+
   private autoplayReason(state: GameState): string {
     this.autoplayMood = nextAutoplayMood(this.autoplayMood, state);
     return this.autoplayMood === "chat"
@@ -198,6 +212,10 @@ export class SlowLoop {
 
     // 机会主义采矿：路过值钱的矿就先判断（挖得动吗 / 还缺吗），剩下交给大脑。
     if (!reason && !quiet) this.watchOres(state);
+
+    // 学他的动作：每 30 秒看一眼他在干嘛，记进画像。
+    // 攒下来的"常干挖矿/常干砍树"会进大脑的提示词 —— 闲下来时它会偏向你爱干的活。
+    this.sampleActivity(state);
 
     const now = Date.now();
     if (!reason) {

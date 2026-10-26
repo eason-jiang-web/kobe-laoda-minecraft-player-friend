@@ -1,7 +1,7 @@
 # 牢大 · Minecraft 陪玩 AI
 
 > 一个会**跟着你玩**的 AI 搭子：进你的世界、跟着你、帮你打怪挖矿、记住你的基地，
-> 用中文跟你聊天 —— 装好语音模组后还能**在游戏里开口说话**。
+> 用中文跟你聊天，还会**看你正在干嘛、跟着干一样的活**。
 
 不是攻略助手，不是教程机器人。是那个你挖矿时在旁边絮叨、你被打时冲上去、你死了帮你捡东西的兄弟。
 人设是「抽象战神」，招牌台词：**What can I say? Mamba out!**
@@ -16,8 +16,7 @@
 | **听你说话** | 游戏聊天栏说什么都接（不用喊名字），也能听懂「去挖点铁」「跟着我」「给我 32 个木头」 |
 | **真的去做** | 砍树、挖矿脉、探路、找村庄、打怪、取东西、丢东西给你 —— 多步任务在后台跑，做完回来汇报 |
 | **会看进度** | 知道主线走到第几步、这一步该干嘛；还会算**现在材料够盖什么**（农场/储物间/刷怪塔/传送门/附魔台/铁傀儡农场…），缺料会列清单 |
-| **自己在游戏里说话** | Windows 中文 TTS，声音**从它在游戏里的位置传出来**（有距离感，像旁边站着个人） |
-| **也能听你说话** | 你在语音频道说话 → 中文识别 → 当成你打的字进大脑（约 0.5 秒） |
+| **跟着你干一样的活** | \`#follow play\`：看你手里拿的、正对着的方块，然后自己去砍树 / 挖矿 / 打架 |
 | **盯着你的动作** | 你被打/死了优先反应；你捡到钻石、完成进度、丢东西给它、睡下、上下线它都知道 |
 | **自修过 wiki** | 跑一次 `bun run study:wiki`，它读 57 个中文 Minecraft Wiki 条目、自己蒸馏成要点常驻记忆；细节随时用 `wiki_notes` 翻原文 |
 | **物品名是中文** | 从你本机 Minecraft 的语言文件读（橡木原木 / 粗铁 / 深层铁矿石），和你在屏幕上看到的逐字一致 |
@@ -76,14 +75,20 @@
 
 | 环节 | 实测 | 怎么测的 |
 |---|---|---|
-| 中文语音合成（TTS） | 5.05 秒的话 ≈ **350–390ms** | Windows SAPI 合成到 WAV，输出 48kHz / 单声道 / 16bit |
-| opus 编码 | 5.87 秒音频 → 293 帧 / 27KB，**310ms**（≈19 倍实时） | 纯 JS 的 opusscript 编码器 |
-| 语音识别（STT） | 每句 **430–480ms** | 三句中文真跑，逐句对照见下 |
 | wiki 查询 | 每次 **340–630ms**（同一词 1 小时内走缓存） | zh.minecraft.wiki 的 MediaWiki API |
 | 自修一条 wiki | **1.3–2.4 秒**（取摘要 + 模型蒸馏成要点） | 57 个条目约 2 分钟跑完 |
-| 你说完 → 它回话 | 约 **2–3 秒** | 识别 0.5s + 模型一轮 + 合成 0.4s（这一项是估算，不是仪器测的） |
+| 你说一句 → 它回一句 | 约 **1–3 秒** | 模型一轮 + 工具调用（估算，不是仪器测的） |
 
-### 语速档位（同一句话，Windows SAPI）
+### 语音相关（已于 2026-10 删除）
+
+> **语音模块已经删掉了**：游戏内的 Simple Voice Chat、终端那套 TTS/识别、以及 vendored 的语音插件全部移除。
+> 现在牢大只在聊天栏说话；想让它"听到"你，用聊天栏打字（或者用系统语音输入法把话打进聊天框）。
+>
+> 下面「语音识别准不准」那张表是它还在时的实测记录，留作历史参考。
+
+<details><summary>历史实测（点开）</summary>
+
+
 
 | `MC_VOICE_RATE` | 时长 | 说明 |
 |---|---|---|
@@ -109,6 +114,8 @@
 
 语音插件默认用 ffmpeg 把音频转成 PCM。实测：**5.87 秒的音频转了 7.5 秒**（0.85 倍实时 —— 对话会卡成幻灯片）。
 所以我们让它直接把话说成 48k/单声道/16bit，跳过转码，只剩 opus 那 310ms。
+
+</details>
 
 ### 复读治好了没（拿自己的运行日志当证据）
 
@@ -232,13 +239,12 @@ bun test         → 333 pass / 0 fail
 bun run doctor   → ✓ Bun 1.4.2   ✗ 没有 .env  → 教你先 Copy-Item .env.example .env
 ```
 
-这一步当场揪出**两个只有别人 clone 才会遇到的 bug**（本地怎么跑都是绿的）：
+这一步当场揪出一个**只有别人 clone 才会遇到的 bug**（本地怎么跑都是绿的）：
 
-1. vendor 进来的语音插件依赖 `tslog` **从没被声明**（它是相对路径引入的，不在依赖图里）
-2. `.gitignore` 的 `data/` **没锚定根目录**，把语音插件的 `lib/data/FriendlyByteBuf.js` 一起忽略了 ——
-   那个文件从来没进过仓库，clone 下来语音模块加载即崩
+- `.gitignore` 的 `data/` **没锚定根目录** —— 它把某依赖里的 `lib/data/xxx.js` 一起忽略了，
+  那个文件从来没进过仓库，clone 下来加载即崩
 
-两个都修了。这本身也是一条实测结论：**「本地能跑」和「别人能跑」是两回事。**
+修了。这本身也是一条实测结论：**「本地能跑」和「别人能跑」是两回事。**
 
 ---
 
@@ -273,9 +279,6 @@ bun run doctor        # 自检：哪没配好它会直接说，并告诉你怎�
 
 启动后终端会打出**全部指令和用法**，游戏里它会自己进来、跟你打招呼。
 
-> **想要它在游戏里说话**：给你的客户端装 **Fabric + [Simple Voice Chat](https://modrinth.com/plugin/simple-voice-chat)**，
-> 然后在 `.env` 里设 `MC_VOICE=true`。局域网世界 = 你客户端就是服务端，装一次两边都有。
-> 装完按 `V` 选麦克风，它就能听见你、也能开口回你。
 
 ---
 
@@ -290,8 +293,6 @@ bun run doctor        # 自检：哪没配好它会直接说，并告诉你怎�
 | `MC_WAKE_WORDS` | 哪些词算「在叫我」 |
 | `MC_AUTOPLAY` | `true`＝没人理它时自己排活干（挖矿/探路/盖东西） |
 | `MC_CHAT_REPLY_ALL` | `true`＝你说什么它都回，不用喊名字 |
-| `MC_VOICE` / `MC_VOICE_TTS` | 语音开关 / 音色（如 `Microsoft Huihui Desktop`） |
-| `MC_VOICE_HEAR` | 听不听你说话（识别） |
 | `MC_REPORT_ITEMS` | 攒够多少跟你报一声，如 `any_log:128,rare:10` |
 | `MC_GAME_DIR` | 你的游戏目录（读中文物品名 + 自动开 op 用；不填会自动找） |
 | `DEEPSEEK_API_KEY` | DeepSeek 的 key（大脑靠它思考） |
@@ -352,20 +353,19 @@ bun run typecheck     # 类型检查
 | **它进游戏了，但一句话都不说** | 大脑没开。`.env` 里要有 `BRAIN_ENABLED=true` 和 `BRAIN_CMD=bun apps/brain-deepseek/src/index.ts`（`.env.example` 默认就是这两行）。启动横幅和 `bun run doctor` 都会直接把这条点出来 |
 | `port 3001 is already in use` | 上一次的机器人还在跑。关掉那个窗口，或改 `.env` 里的 `MCP_PORT` 和 `ITTO_MCP_URL` |
 | 一直说"连不上 127.0.0.1:25565" | 世界没开「对局域网开放」，或者**端口没从随机值改成 25565**。它会一直等，改好自己就进来了 |
-| 它不说话（语音） | 客户端装 Simple Voice Chat 了吗、`MC_VOICE=true` 吗、游戏里按 `V` 选对麦克风了吗。终端里搜 `语音频道已连上` |
-| 它听不到我说话 | 同上，加上：别超过 32 格（默认语音距离）。终端里应该有 `听到 eason 说了 X 秒` |
 | `#back` 说"传不过去" | 没有 op。游戏里打一次 `/op <机器人名>`，或者关掉世界双击 `给牢大开权限.cmd` |
 | 版本报错 `is not a Minecraft version mineflayer can speak` | 换成它提示的那个版本，或改 `MC_VERSION` 跟你世界一致 |
 | 想让它闭嘴/省钱 | `HEARTBEAT_MS=0`、`MC_AUTOPLAY=false`、`MC_CHAT_REPLY_ALL=false` |
 
-更细的排查（含语音、op、皮肤）见 **[docs/PCL_DEEPSEEK_SETUP.md](./docs/PCL_DEEPSEEK_SETUP.md)** 和 **[docs/SKIN_AND_MENU.md](./docs/SKIN_AND_MENU.md)**。
+更细的排查（含 op、皮肤）见 **[docs/PCL_DEEPSEEK_SETUP.md](./docs/PCL_DEEPSEEK_SETUP.md)** 和 **[docs/SKIN_AND_MENU.md](./docs/SKIN_AND_MENU.md)**。
 
 ---
 
 ## 来源与说明
 
 - 本项目基于 **[silaswu4/itto](https://github.com/silaswu4/itto)** 改造：原来的骨架（快慢双循环 + MCP 分层）保留，
-  脑子换成了内置的 DeepSeek，人设、中文、语音、进度/工程评估、自修 wiki、中文物品名、硬指令这些都是后加的。
+  脑子换成了内置的 DeepSeek，人设、中文、进度/工程评估、自修 wiki、中文物品名、硬指令、
+  `#follow play` 这些是后加的；语音模块已经删掉了。
 - 上游仓库**没有 LICENSE 文件**。如果你要公开分发，请先确认上游的授权，或者只自己用/私有仓库。
 - 它读的 Minecraft Wiki 内容来自 [zh.minecraft.wiki](https://zh.minecraft.wiki)（CC BY-NC-SA），
   自修笔记默认写在 `data/` 下（**不会被提交**），请勿把大段 wiki 原文再分发。

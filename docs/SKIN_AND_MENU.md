@@ -136,8 +136,7 @@ MC_BOT_EMAIL=那个账号的邮箱
 | `apps/mc-bot/src/util/startup-banner.ts` | 指令表 / 启动横幅的文案（从命令表自动生成） |
 | `apps/mc-bot/scripts/cheatsheet.ts` | 「指令说明.cmd」跑的那个脚本 |
 
-> **语音已经删掉了**：终端里那套"Windows 麦克风识别 + TTS"（`语音对话.cmd`、
-> `scripts/voice-listen.ps1`）以及它用到的 `/input/voice`、`/speech/pending` 两个接口
-> 都不在了 —— 牢大现在只在游戏聊天里说话。
-> （上游那个从没用过的 Discord 语音包 `packages/discord-bridge` 也一起删了 ——
-> 它调用的 `drain_speech` 工具本来就已经不存在了。）
+> **语音模块已经删掉了**（2026-10）：终端那套"Windows 麦克风识别 + TTS"、
+> 游戏内的 Simple Voice Chat、vendored 的语音插件、上游那个从没用过的 Discord 语音包
+> 全都不在了 —— 牢大现在只在游戏聊天里说话。
+> 想让它听见你：聊天栏打字，或者用系统语音输入（Win+H）把话打进聊天框。

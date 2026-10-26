@@ -208,24 +208,6 @@ async function main(): Promise<void> {
         },
   );
 
-  // 9. 语音（可选）
-  const voice = get("MC_VOICE") === "true";
-  if (voice) {
-    let pluginOk = true;
-    try {
-      await import("../apps/mc-bot/vendor/mineflayer-simplevoice/lib/index.js");
-    } catch {
-      pluginOk = false;
-    }
-    add(
-      pluginOk
-        ? { ok: true, label: "语音插件能加载（客户端要装 Simple Voice Chat 才听得到）" }
-        : { ok: false, label: "语音插件加载失败", fix: "在仓库根目录跑 bun install，还不行就把 MC_VOICE 设成 false" },
-    );
-  } else {
-    add({ ok: true, label: "语音关着（MC_VOICE 不是 true）—— 想让它开口就设成 true" });
-  }
-
   // 打印
   for (const r of results) {
     console.log("  " + (r.ok ? "✓" : r.fatal ? "✗" : "!") + " " + r.label);

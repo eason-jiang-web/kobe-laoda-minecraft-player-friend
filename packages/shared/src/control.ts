@@ -108,7 +108,11 @@ export interface BotControl {
   // ── Mid-level action primitives (path-aware; composed by skills) ──
 
   /** Pathfind adjacent to a block and mine it (auto-equips the best tool). */
-  digAt(pos: Vec3Lit): Promise<void>;
+  /**
+   * 挖掉一个方块。够不着会自己想办法（跳 / 钻进树干），
+   * 返回 true 只代表**方块真的没了**。
+   */
+  digAt(pos: Vec3Lit): Promise<boolean>;
 
   /** Path to + mine a list of coords in order, best-effort. Returns count mined. */
   mineMany(positions: Vec3Lit[]): Promise<number>;

@@ -64,6 +64,51 @@ const run = (line: string, ctx: CommandContext) => {
   return hit.command.run(ctx, hit.arg);
 };
 
+describe("#follow play —— 跟我干一样的活", () => {
+  /** 换一份"他正在干嘛"的快照，并记录派了什么技能。 */
+  function withActivity(state: Record<string, unknown>) {
+    const h = harness();
+    (h.ctx.control as unknown as { getState: () => unknown }).getState = () => state;
+    const skills: Array<{ name: string; args?: Record<string, unknown> }> = [];
+    h.ctx.setSkill = (name: string, args?: Record<string, unknown>) => {
+      skills.push({ name, args });
+      return "跟着干：" + name;
+    };
+    return { ...h, skills };
+  }
+
+  const base = { player: { username: "eason", pos: { x: 2, y: 64, z: 0 }, distance: 2, online: true }, nearbyHostiles: [], inventory: [] };
+
+  test("你在砍树 → 它去砍树（而且不止一棵）", async () => {
+    const h = withActivity({ ...base, self: { lookingAt: "oak_log", heldItem: "iron_axe" } });
+    const reply = await run("#follow play", h.ctx);
+    expect(h.skills[0]?.name).toBe("chop_tree");
+    expect(h.skills[0]?.args).toMatchObject({ count: 16 });
+    expect(reply).toContain("砍树");
+  });
+
+  test("你在挖矿 → 挖你正对着的那种矿", async () => {
+    const h = withActivity({ ...base, self: { lookingAt: "iron_ore", heldItem: "stone_pickaxe" } });
+    await run("#follow play", h.ctx);
+    expect(h.skills[0]).toEqual({ name: "mine_vein", args: { ore: "iron_ore" } });
+  });
+
+  test("旁边有怪 → 上来帮你打", async () => {
+    const h = withActivity({ ...base, self: { lookingAt: null, heldItem: null }, nearbyHostiles: [{ id: 9, name: "zombie", pos: { x: 1, y: 64, z: 0 }, distance: 2 }] });
+    const reply = await run("#follow play", h.ctx);
+    expect(h.skills[0]?.name).toBe("combat_assist");
+    expect(reply).toContain("打架");
+  });
+
+  test("看不出你在干嘛 → 老实说，还跟着你（不瞎派活）", async () => {
+    const h = withActivity({ ...base, self: { lookingAt: null, heldItem: null } });
+    const reply = await run("#follow play", h.ctx);
+    expect(h.skills.length).toBe(0);
+    expect(reply).toContain("看不出");
+    expect(reply.length).toBeLessThanOrEqual(256);
+  });
+});
+
 describe("#value", () => {
   test("with no argument it answers both 'what is worth it' and 'what are we short of'", async () => {
     const h = harness();

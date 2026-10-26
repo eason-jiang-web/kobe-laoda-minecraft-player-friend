@@ -51,23 +51,6 @@ export interface Config {
      * 找存档。不填就自动找。MC_GAME_DIR。
      */
     gameDir?: string;
-    /**
-     * 在游戏里用**语音**说话（Simple Voice Chat 模组）。
-     * 需要你的客户端装了这个模组；它说话的声音会从它在游戏里的位置传出来。
-     * MC_VOICE。
-     */
-    voice: {
-      enabled: boolean;
-      /** 音色名（Windows 自带可用：Microsoft Huihui Desktop / Microsoft Yaoyao）。 */
-      ttsVoice: string;
-      /** 语速 -10..10。 */
-      rate: number;
-      /**
-       * 听不听你说话（Windows 中文识别）。默认开。
-       * 关掉就只"说"不"听" —— 识别每句要 1~2 秒，嫌慢可以关。
-       */
-      hear: boolean;
-    };
   };
   mcp: {
     host: string;
@@ -135,12 +118,6 @@ export function loadConfig(): Config {
       allowedCommands: parseAllowedCommands(process.env.MC_ALLOW_COMMANDS),
       selfOp: (process.env.MC_SELF_OP ?? "true") === "true",
       gameDir: process.env.MC_GAME_DIR?.trim() || undefined,
-      voice: {
-        enabled: process.env.MC_VOICE === "true",
-        ttsVoice: process.env.MC_VOICE_TTS?.trim() || "Microsoft Huihui Desktop",
-        rate: Number.parseInt(process.env.MC_VOICE_RATE ?? "0", 10) || 0,
-        hear: (process.env.MC_VOICE_HEAR ?? "true") === "true",
-      },
     },
     mcp: {
       host: process.env.MCP_HOST ?? "0.0.0.0",

@@ -41,6 +41,44 @@ describe("mineBlock —— 挖完要回头看一眼", () => {
   });
 });
 
+describe("mineMany —— 只数真的挖掉的（砍树只掉 1 个木头的根子）", () => {
+  /** 一个"够得着、goto 成功"的假身体。 */
+  function miningBot(blockStillThere: boolean) {
+    let dug = 0;
+    const bot = {
+      username: "Laoda",
+      chat: () => {},
+      entity: { position: { x: 0, y: 64, z: 0, distanceTo: () => 1 }, onGround: true },
+      blockAt: () => (blockStillThere || dug === 0 ? { name: "oak_log", position: { x: 0, y: 65, z: 0 } } : { name: "air" }),
+      pathfinder: {
+        goto: async () => {},
+        stop: () => {},
+        bestHarvestTool: () => ({ name: "iron_axe", type: 1 }),
+      },
+      dig: async () => {
+        dug++;
+      },
+      equip: async () => {},
+      setControlState: () => {},
+      inventory: { items: () => [] },
+      registry: { items: {}, itemsByName: {} },
+    } as unknown as Bot;
+    return new BotController(bot, {} as Config);
+  }
+
+  test("挖了但方块还在 → 不算（原来是「够不着也 +1」）", async () => {
+    const c = miningBot(true);
+    const n = await c.mineMany([{ x: 0, y: 65, z: 0 }]);
+    expect(n).toBe(0);
+  });
+
+  test("方块真的没了 → 才算一个", async () => {
+    const c = miningBot(false);
+    const n = await c.mineMany([{ x: 0, y: 65, z: 0 }]);
+    expect(n).toBe(1);
+  });
+});
+
 describe("dropItem —— 丢完要确认背包真的少了", () => {
   test("toss 返回了但东西还在背包 → 报错", async () => {
     const items = [{ name: "stone_pickaxe", type: 1, count: 1 }];

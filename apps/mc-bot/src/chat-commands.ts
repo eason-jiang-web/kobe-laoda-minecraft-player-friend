@@ -11,14 +11,17 @@ import type { BotController } from "./bot/controller.js";
 import { pickWeapon } from "./skills/combat-assist.js";
 import { appendLabel } from "./training-labels.js";
 import {
+  activityLabel,
   countFor,
   groupLabel,
+  guessPlayerActivity,
   guideProgress,
   guideStatus,
   itemDetail,
   needsSummary,
   readyFacilities,
   representativeItem,
+  skillForActivity,
   valueOneLiner,
 } from "@itto/shared";
 import { clearCap, knownKeys, resolveItemKey, setCap } from "./value-caps.js";
@@ -33,6 +36,8 @@ export interface CommandContext {
   follow: { setFreeRoam(on: boolean): void; isFreeRoam(): boolean };
   /** 目标执行器：让 #stop / #cancel 能丢掉当前任务，并报出丢掉的是哪个。 */
   runner: { cancel(): void; currentGoal(): { label: string } | null };
+  /** 排一个技能目标（#follow play 用）。返回目标名。 */
+  setSkill?(name: string, args?: Record<string, unknown>): string;
   /** 边玩边学攒下来的画像（他的习惯 + 你的熟练度）一句话版。 */
   profile?: () => string;
 }
@@ -333,6 +338,28 @@ export const COMMANDS: ChatCommand[] = [
     run: async (ctx) => {
       // 纯读本地数据，不走大脑、不花钱、瞬间回。
       return ctx.profile?.() ?? "还没玩出什么名堂 —— 多带我干点活，我就记住了。";
+    },
+  },
+  {
+    trigger: "#follow play",
+    help: "#follow play —— 看你正在干嘛，跟你干一样的活",
+    detail: [
+      "它看一眼你现在在干嘛，然后自己去干同类的活：",
+      "  你在砍树 → 它也去砍树      你在挖矿 → 它也挖（挖你正对着的那种）",
+      "  你在打架 → 它上来帮你        你在盖东西 → 它去帮你备料",
+      "  看不出你在干嘛 → 它跟着你，让你补一句（「一起砍树」也行，只是走大脑慢一点）",
+      "它判断的依据：你正对着的方块 > 你手上的工具 > 你旁边的怪。",
+    ],
+    run: async (ctx) => {
+      const state = ctx.control.getState();
+      const act = guessPlayerActivity(state);
+      const job = skillForActivity(act);
+      if (!job) {
+        return "看不出你在干啥（" + act.why + "）—— 我跟着你了，说一句「一起砍树」或者「一起挖矿」也行。";
+      }
+      if (!ctx.setSkill) return "任务队列没接上（内部错误）";
+      ctx.setSkill(job.name, job.args);
+      return "跟你干一样的：" + activityLabel(act.kind) + "（" + act.why + "）";
     },
   },
   {

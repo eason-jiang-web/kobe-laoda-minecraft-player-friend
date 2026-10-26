@@ -4,7 +4,6 @@ import { assertPortAvailable, createMcpServer, serveHttp } from "@itto/mcp-serve
 import { loadConfig } from "./config.js";
 import type { Bot } from "mineflayer";
 import { createBot, onBotDead, type CreateBotOptions } from "./bot/create-bot.js";
-import { VoiceChat } from "./voice/svc.js";
 import { BotController } from "./bot/controller.js";
 import { FastLoop } from "./fast-loop/index.js";
 import { SlowLoop, consoleNudgeSink } from "./slow-loop/index.js";
@@ -69,35 +68,7 @@ async function main() {
   if (zh) log.info("中文名已加载：" + zh.count + " 条（" + zh.source + "）");
   else log.warn("没找到 Minecraft 的中文语言文件 —— 物品名会用内置词典/英文 id 显示");
 
-  // 语音（可选）：**必须在连接之前建好**。
-  // 插件是在 `login` 事件里注册语音通道的，等 spawn 之后再挂就已经错过了 ——
-  // 通道没注册 → 机器人不请求语音密钥 → 永远进不了语音频道（实测踩过）。
-  const voice = cfg.mc.voice.enabled
-    ? new VoiceChat({
-        tts: { voice: cfg.mc.voice.ttsVoice, rate: cfg.mc.voice.rate },
-        // 只听主人的声音：别人说话不算在跟它说话。
-        listenTo: cfg.mc.ownerUsername,
-        onHeard: cfg.mc.voice.hear
-          ? (text, from) => {
-              // 你在语音里说的话 = 你在聊天栏里打的字：进同一条管道、同样唤醒大脑。
-              log.info("（语音）" + from + "：" + text);
-              pushChat(from, text);
-              slow.poke();
-            }
-          : undefined,
-      })
-    : null;
-  if (voice) {
-    log.info(
-      "语音已开启：" +
-        (cfg.mc.voice.hear ? "听你说 + " : "只说、不听（MC_VOICE_HEAR=false）+ ") +
-        "说话用 " +
-        cfg.mc.voice.ttsVoice +
-        "，语速 " +
-        cfg.mc.voice.rate,
-    );
-  }
-  const botOpts: CreateBotOptions = { onBotCreated: (b: Bot) => voice?.attachTo(b) };
+  const botOpts: CreateBotOptions = {};
 
   // 1 + 2
   // 连不上很正常：顺序反了（先开窗口再进世界）、或者「对局域网开放」的端口
@@ -158,16 +129,6 @@ async function main() {
       slow.notifyGoalComplete(goal);
     },
   });
-
-  if (voice) {
-    // 所有"它说的话"都从 controller.chat 出去，所以在这里挂一道语音 ——
-    // 聊天回复、#指令回复、任务汇报全都自动带上声音。
-    const chatText = controller.chat.bind(controller);
-    controller.chat = async (message: string) => {
-      await chatText(message);
-      void voice.say(message);
-    };
-  }
 
   // stamp live followState + currentGoal onto every snapshot
   const origGetState = controller.getState.bind(controller);
@@ -271,7 +232,18 @@ async function main() {
         memory.bumpHabit(HABIT.command(hit.command.trigger));
         log.info(`command ${hit.command.trigger}${hit.arg ? " " + hit.arg : ""} from ${username}`);
         void hit.command
-          .run({ control: controller, follow: fast.follow, runner, profile: () => memory.briefText() }, hit.arg)
+          .run(
+            {
+              control: controller,
+              follow: fast.follow,
+              runner,
+              profile: () => memory.briefText(),
+              // #follow play：看他正在干嘛，排一个同类的技能目标
+              setSkill: (name: string, args?: Record<string, unknown>) =>
+                runner.setGoal({ kind: "skill", name, args }, "跟着干：" + name).label,
+            },
+            hit.arg,
+          )
           .then((reply) => (reply ? controller.chat(reply) : undefined))
           .catch((e) => log.warn(`command ${hit.command.trigger} failed: ${(e as Error).message}`));
         return;

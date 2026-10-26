@@ -539,26 +539,71 @@ export class BotController implements BotControl {
     });
   }
 
-  async digAt(pos: Vec3Lit): Promise<void> {
-    const v = new Vec3(pos.x, pos.y, pos.z);
-    const block = this.bot.blockAt(v);
-    if (!block || block.name === "air") return;
-    await this.gotoSafe(new goals.GoalGetToBlock(pos.x, pos.y, pos.z), 8000);
-    const reach = this.bot.entity.position.distanceTo(v);
-    if (reach > 4.5) return; // couldn't get close enough; skip rather than hang on dig
-    const fresh = this.bot.blockAt(v);
-    if (!fresh || fresh.name === "air") return;
-    const tool = this.bot.pathfinder.bestHarvestTool(fresh);
-    if (tool) await this.bot.equip(tool, "hand");
-    await this.bot.dig(fresh);
+  /** 够不够得着这个方块（原版手长大概 4.5）。 */
+  private inReach(v: Vec3): boolean {
+    return this.bot.entity.position.distanceTo(v) <= 4.5;
   }
 
+  /**
+   * 跳一下再试 —— 树上部那几格就是这么拿到的。
+   * 玩家砍树不会"够不着就算了"，他会跳。
+   */
+  private async jumpOnce(): Promise<void> {
+    if (!this.bot.entity.onGround) return;
+    this.bot.setControlState("jump", true);
+    await new Promise((r) => setTimeout(r, 160));
+    this.bot.setControlState("jump", false);
+    await new Promise((r) => setTimeout(r, 120));
+  }
+
+  /**
+   * 挖掉一个方块。**够不着会真的想办法**，不再是"悄悄跳过"。
+   *
+   * 这是"砍树只掉 1 个木头"的根子：树干上部的方块离你 5~7 格，
+   * 原来的代码直接 return，调用方还把它算成挖成功了。
+   *
+   * 三步走（都是玩家会干的事）：走过去 → 跳一下 → 钻进树干里（脚下那格）再挖。
+   * 返回 true 只代表**方块真的没了**（会回头确认）。
+   */
+  async digAt(pos: Vec3Lit): Promise<boolean> {
+    const v = new Vec3(pos.x, pos.y, pos.z);
+    let block = this.bot.blockAt(v);
+    if (!block || block.name === "air") return false;
+    const wasName = block.name;
+
+    await this.gotoSafe(new goals.GoalGetToBlock(pos.x, pos.y, pos.z), 8000);
+    if (!this.inReach(v)) await this.jumpOnce();
+    if (!this.inReach(v)) {
+      // 钻进树干/矿脉里：站到它下面那一格，抬头就够得着了
+      await this.gotoSafe(new goals.GoalBlock(pos.x, pos.y - 1, pos.z), 4000);
+      if (!this.inReach(v)) await this.jumpOnce();
+    }
+    if (!this.inReach(v)) {
+      log.debug(`digAt: 还是够不着 (${pos.x},${pos.y},${pos.z})`);
+      return false;
+    }
+
+    block = this.bot.blockAt(v);
+    if (!block || block.name === "air") return true; // 路上已经掉了
+    const tool = this.bot.pathfinder.bestHarvestTool(block);
+    if (tool) await this.bot.equip(tool, "hand").catch(() => undefined);
+    await this.bot.dig(block);
+
+    // 回头看一眼：真的没了吗（工具不对 / 服务端没认的时候 dig 也会"成功"返回）
+    const gone = await this.waitFor(() => {
+      const now = this.bot.blockAt(v);
+      return !now || now.name === "air" || now.name !== wasName;
+    }, 1200);
+    if (!gone) log.debug(`digAt: 挖了但还在 (${pos.x},${pos.y},${pos.z})`);
+    return gone;
+  }
+
+  /** 挖一串方块，只数**真的挖掉的**（够不着的不算，别自欺欺人）。 */
   async mineMany(positions: Vec3Lit[]): Promise<number> {
     let mined = 0;
     for (const p of positions) {
       try {
-        await this.digAt(p);
-        mined++;
+        if (await this.digAt(p)) mined++;
       } catch (e) {
         log.debug(`mineMany skip (${p.x},${p.y},${p.z}): ${(e as Error).message}`);
       }
