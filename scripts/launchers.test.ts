@@ -26,7 +26,7 @@ describe("双击启动器（.cmd）", () => {
    * .ps1 反过来：**必须有 UTF-8 BOM**。
    * PowerShell 5.1 没有 BOM 就按 GBK 读，中文全变乱码 ——
    * 轻则提示语变成"寮曟搸"，重则乱码里的引号把脚本直接读崩
-   * （实测 hear.ps1 就这么挂的：Array index expression is missing）。
+   * （以前有个 .ps1 就这么挂的：Array index expression is missing）。
    */
   test("every .ps1 starts with a UTF-8 BOM", () => {
     const scripts = readdirSync(join(root, "scripts")).filter((f) => f.endsWith(".ps1"));
