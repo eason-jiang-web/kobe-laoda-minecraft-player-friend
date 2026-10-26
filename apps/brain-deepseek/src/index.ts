@@ -48,6 +48,22 @@ import { appendTurn, type TrainingToolCall } from "./training-log.js";
 /** Synthetic tool that exposes MCP resources (which aren't tools) to the model. */
 const READ_RESOURCE = "read_resource";
 
+/**
+ * 只读工具：同一轮里可以**并行**发，互不影响。
+ * 不在这个集合里的一律按顺序执行（挖方块、走路、说话都是有副作用的）。
+ */
+const PARALLEL_SAFE = new Set([
+  "read_resource",
+  "find_blocks",
+  "look_detect",
+  "nearby_blocks",
+  "inventory_report",
+  "assess_progress",
+  "wiki_lookup",
+  "wiki_notes",
+  "get_goal",
+]);
+
 type ListedTools = Awaited<ReturnType<Client["listTools"]>>;
 type McpTool = ListedTools["tools"][number];
 type ListedResources = Awaited<ReturnType<Client["listResources"]>>;
@@ -206,6 +222,16 @@ function buildSystemPrompt(
       + "read_resource with itto://state/current.txt (or itto://state/current for JSON).",
     "- **少走冤枉路**：能一步做完的事别拆成三步。叫醒你是因为有值得反应的事 —— "
       + "该动手就动手，没什么可做就**直接结束这一轮**（别为了「看看情况」反复读状态）。",
+    "- **先应一声，再动手**（重要，观感全靠这个）：第一步就把 ```chat``` 发出去 —— "
+      + "「收到 man，这就去」。你兄弟 1 秒内就知道你听见了；不然它要等你把活干完（十几秒）才看到你说话，"
+      + "只会觉得你卡住了。**应一声和干活不冲突**，一句话的事。",
+    "- **超过两三秒的活交给身体，别在循环里等**（这条最能省时间）：挖一整棵树、走很远、挖一片矿 —— "
+      + "用 set_goal 或 run_skill 派给身体，它在后台自己干，**你这一轮立刻就能结束**（顺手先应一声）。"
+      + "只有「抬手就能挖掉一格」这种事才用 mine_block 当场做。"
+      + "在循环里等 mine_block / move_to 一趟就是好几秒，你兄弟只能干看着。",
+    "- **能一起做的就一次调完**：一次回复里可以带上**多个**工具调用（比如 chat + set_goal、"
+      + "find_blocks + mine_block、move_to + chat），它们会依次执行。每多一次往返你就多等 1~3 秒，"
+      + "游戏里你兄弟就多站 1~3 秒 —— 所以**别一步只干一件事**。判断该干什么之后，把要做的动作一次发完。",
     "- 想说话只有一条路：调 chat 工具（中文，一两句，偶尔带一句 man / What can I say）。",
     "- **你最后写的那段文字，玩家看不见** —— 游戏里只有 chat 工具发出去的话才算数。"
       + "所以不想说就**什么都别调、直接结束这一轮**；千万别写一句「我不吭声了」当结尾 —— "
@@ -489,6 +515,32 @@ async function main(): Promise<void> {
       }
 
       trace(cfg, "step " + (step + 1) + ": " + calls.map((c) => c.function.name).join(", "));
+
+      // 同一轮里的多个调用**并行跑**（这是真能省时间的并行，不是多开大脑）：
+      //   · 只读的（看方块/看状态/查 wiki）互不影响 -> 一起发，省掉串行等待
+      //   · 有副作用的（挖/走/说话）必须按顺序 —— 两个 mine_block 同时跑会抢路
+      // 不能"多开几个大脑"：它们共用同一个身体，会互相抢目标、重复说话。
+      const parallelResults = new Map<string, string>();
+      const runnable = calls.filter((c) => {
+        const fp = c.function.name + " " + (c.function.arguments ?? "");
+        if (already.has(fp)) return false;
+        already.add(fp);
+        return true;
+      });
+      const readOnly = runnable.filter((c) => PARALLEL_SAFE.has(c.function.name));
+      const mutating = runnable.filter((c) => !PARALLEL_SAFE.has(c.function.name));
+      if (readOnly.length > 1) {
+        trace(cfg, "parallel x" + readOnly.length + ": " + readOnly.map((c) => c.function.name).join(", "));
+        await Promise.all(
+          readOnly.map(async (c) => {
+            parallelResults.set(c.id, await runTool(client, c, cfg));
+          }),
+        );
+      } else if (readOnly.length === 1) {
+        parallelResults.set(readOnly[0]!.id, await runTool(client, readOnly[0]!, cfg));
+      }
+      for (const c of mutating) parallelResults.set(c.id, await runTool(client, c, cfg));
+
       for (const call of calls) {
         // The model sometimes repeats itself in the same turn ("say this" twice).
         // In game that means the same line twice in chat, which looks broken.
@@ -503,9 +555,7 @@ async function main(): Promise<void> {
           });
           continue;
         }
-        already.add(fingerprint);
-
-        const result = await runTool(client, call, cfg);
+        const result = parallelResults.get(call.id) ?? "error: no result for this call";
         did.push(call.function.name);
         // 逼出来的话要记住 —— 下一轮醒来才知道自己说过什么（防复读的关键）
         if (call.function.name === "chat" && !result.startsWith("error:")) {
