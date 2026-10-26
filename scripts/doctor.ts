@@ -159,11 +159,11 @@ async function main(): Promise<void> {
     const err = await deepseekWorks(
       key,
       get("DEEPSEEK_BASE_URL") || "https://api.deepseek.com",
-      get("DEEPSEEK_MODEL") || "deepseek-flash",
+      get("DEEPSEEK_MODEL") || "deepseek-v4-pro",
     );
     add(
       err === null
-        ? { ok: true, label: "DeepSeek key 可用（模型 " + (get("DEEPSEEK_MODEL") || "deepseek-flash") + "）" }
+        ? { ok: true, label: "DeepSeek key 可用（模型 " + (get("DEEPSEEK_MODEL") || "deepseek-v4-pro") + "）" }
         : { ok: false, fatal: true, label: "DeepSeek key 用不了", fix: err + "  —— 去 platform.deepseek.com 检查 key / 余额" },
     );
   }

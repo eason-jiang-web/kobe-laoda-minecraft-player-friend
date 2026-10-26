@@ -7,7 +7,7 @@
 import { DeepSeekClient } from "../src/deepseek.js";
 
 const key = process.env.DEEPSEEK_API_KEY ?? "";
-const model = process.env.DEEPSEEK_MODEL ?? "deepseek-flash";
+const model = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-pro";
 const baseUrl = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
 
 if (!key) {

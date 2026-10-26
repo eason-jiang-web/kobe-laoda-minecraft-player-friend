@@ -22,7 +22,7 @@ slow loop nudge ──spawn──► bun apps/brain-deepseek/src/index.ts "<prom
 | Var | Default | Notes |
 |---|---|---|
 | `DEEPSEEK_API_KEY` | — | required, from platform.deepseek.com |
-| `DEEPSEEK_MODEL` | `deepseek-flash` | API 只认 `deepseek-flash` / `deepseek-v4-pro`；两个都支持工具调用（不支持工具就只会聊天不会动手） |
+| `DEEPSEEK_MODEL` | `deepseek-v4-pro` | API 只认 `deepseek-flash` / `deepseek-v4-pro`；两个都支持工具调用（不支持工具就只会聊天不会动手） |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | any OpenAI-compatible endpoint works |
 | `ITTO_MCP_URL` | `http://localhost:3001/mcp` | where the bot serves MCP |
 | `BRAIN_MAX_STEPS` | `6` | model round-trips per wake |
